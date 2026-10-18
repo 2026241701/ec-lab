@@ -1,0 +1,59 @@
+# ============================================================
+# ec-lab .gitignore
+# 公开仓库里只放源码、配置模板与合成样例。
+# 个人配置、真实测量数据、开发产物一律不入库（但留在磁盘上）。
+# ============================================================
+
+# ---------- 个人配置与运行记录 ----------
+# config.json 里有本机真实数据路径和样品质量登记，入库的是 config.example.json
+config.json
+config.json.坏了_*
+_cfg_backup/
+_collab/
+_logs/
+_junk/
+_bak_*/
+
+# ---------- 编辑器 / AI 助手的工作区记忆 ----------
+.workbuddy/
+
+# ---------- 虚拟环境与 Python 缓存 ----------
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ---------- 真实测量数据与运行输出（体积大、含个人数据） ----------
+_raw/
+_mock/
+output/
+dist/
+build/
+
+# ---------- 开发期一次性产物 ----------
+_bt_state.txt
+错误日志.txt
+体检报告.txt
+_check_env.txt
+_tests/_*.png
+_tests/_e2e/
+
+# ---------- 开发期文档与一次性探针（留在磁盘，不随仓库分发） ----------
+ec_probe.py
+优化方案*.md
+overview*.md
+_tests/*验收报告*.md
+# 早期开发期脚本：引用了重构前的界面结构，已被 smoke_test / regress_check 取代
+test_preview.py
+test_fit.py
+
+# ---------- 启动脚本（由 make_launchers.py 按本机 Python 路径生成） ----------
+*.bat
+*.vbs
+
+# ---------- 但这些东西必须入库 ----------
+!eclab.py
+!ec_gui.py
+!config.example.json
+!requirements.txt

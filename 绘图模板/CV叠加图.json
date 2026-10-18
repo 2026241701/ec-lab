@@ -1,0 +1,1176 @@
+{
+  "_模板类型": "绘图模板",
+  "_说明": "画图外观（每张图各一套）+ 输出格式",
+  "plot_style": {
+    "canvas": {
+      "width": 180.0,
+      "height": 140.0,
+      "dpi": 600,
+      "unit": "mm",
+      "transparent": true,
+      "margin": {
+        "left": 25.0,
+        "right": 5.0,
+        "top": 5.0,
+        "bottom": 20.0
+      }
+    },
+    "font": {
+      "family": "Arial",
+      "cjk": "SimSun",
+      "base": 14,
+      "label": 20,
+      "tick": 20,
+      "legend": 20,
+      "title": 14
+    },
+    "line": {
+      "width": 1.8,
+      "marker": 5.0,
+      "cap_size": 8
+    },
+    "mathtext": {
+      "fontset": "custom",
+      "rm": "",
+      "it": "",
+      "bf": "",
+      "sub_ratio": 0.68,
+      "rise": 0.4,
+      "drop": 0.2
+    },
+    "colors": [
+      "#2166AC",
+      "#4393C3",
+      "#92C5DE",
+      "#FDDBC7",
+      "#F4A582",
+      "#D6604D",
+      "#B2182B"
+    ],
+    "axis": {
+      "linewidth": 1.5,
+      "tick_dir": "out",
+      "tick_len": 6.0,
+      "tick_width": 1.5,
+      "minor": true,
+      "minor_per_major": 2,
+      "x_major": 0.2,
+      "y_major": 0.0,
+      "x_min": "-0.8",
+      "x_max": "0.8",
+      "y_min": "-20",
+      "y_max": "10",
+      "show_top_right": true,
+      "sides": {
+        "bottom": {
+          "major": true,
+          "minor": false,
+          "labels": true
+        },
+        "top": {
+          "major": false,
+          "minor": false,
+          "labels": false
+        },
+        "left": {
+          "major": true,
+          "minor": false,
+          "labels": true
+        },
+        "right": {
+          "major": false,
+          "minor": false,
+          "labels": false
+        }
+      },
+      "titles": {
+        "x": "",
+        "y": ""
+      },
+      "title_size": {
+        "x": 0,
+        "y": 0
+      },
+      "title_cfg": {
+        "x": {
+          "color": "#000000",
+          "pad": 0,
+          "shift_x": 0.0,
+          "shift_y": 0.0,
+          "weight": "normal",
+          "style": "normal",
+          "sub_ratio": 0.68,
+          "rise": 0.4,
+          "drop": 0.18,
+          "sup_dx": 0.0,
+          "sub_dx": 0.0
+        },
+        "y": {
+          "color": "#000000",
+          "pad": 0,
+          "shift_x": 0.0,
+          "shift_y": 0.0,
+          "weight": "normal",
+          "style": "normal",
+          "sub_ratio": 0.68,
+          "rise": 0.0,
+          "drop": 0.18,
+          "sup_dx": -0.2,
+          "sub_dx": 0.0
+        }
+      },
+      "tick_label_size": 0,
+      "categorical": {
+        "x": true,
+        "y": true
+      },
+      "cat_labels": {
+        "x": "",
+        "y": ""
+      },
+      "tick_len_minor": 3.0
+    },
+    "legend": {
+      "show": true,
+      "loc": "best",
+      "ncol": 2,
+      "frameon": false,
+      "alpha": 1.0,
+      "border_width": 0.8,
+      "items": [
+        "2 mV/s",
+        "5 mV/s",
+        "10 mV/s",
+        "20 mV/s",
+        "50 mV/s",
+        "100 mV/s",
+        "200 mV/s"
+      ],
+      "handle_length": 2.0,
+      "handle_height": 0.7,
+      "handle_textpad": 0.8,
+      "label_spacing": 0.5,
+      "column_spacing": 2.0,
+      "anchor": {
+        "on": false,
+        "leg_corner": "upper right",
+        "x": 1.0,
+        "y": 1.0
+      }
+    },
+    "grid": {
+      "show": false,
+      "style": "--",
+      "width": 0.6,
+      "alpha": 0.4,
+      "color": "#999999"
+    },
+    "scatter": {
+      "mode": "unified",
+      "marker": "o",
+      "fill": "实心",
+      "face_color": "",
+      "edge_color": "",
+      "edge_width": 1.2,
+      "size": 8.0,
+      "vline": true,
+      "vline_color": "",
+      "vline_width": 1.8,
+      "vline_style": "-",
+      "vline_alpha": 1.0,
+      "face_colors": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "vline_colors": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "edge_colors": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ]
+    },
+    "eis": {
+      "equal_scale": true,
+      "x_max": 0.0,
+      "y_max": 0.0,
+      "inset": false,
+      "inset_x_max": 0
+    },
+    "texts": []
+  },
+  "plot_style_by_kind": {
+    "cv_cap": {
+      "canvas": {
+        "width": 180.0,
+        "height": 140.0,
+        "dpi": 600,
+        "unit": "mm",
+        "transparent": true,
+        "margin": {
+          "left": 25.0,
+          "right": 5.0,
+          "top": 5.0,
+          "bottom": 20.0
+        }
+      },
+      "font": {
+        "family": "Arial",
+        "cjk": "SimSun",
+        "base": 14,
+        "label": 20,
+        "tick": 20,
+        "legend": 20,
+        "title": 14
+      },
+      "line": {
+        "width": 1.8,
+        "marker": 5.0,
+        "cap_size": 8
+      },
+      "mathtext": {
+        "fontset": "custom",
+        "rm": "",
+        "it": "",
+        "bf": "",
+        "sub_ratio": 0.68,
+        "rise": 0.4,
+        "drop": 0.18
+      },
+      "colors": [
+        "#2166AC",
+        "#4393C3",
+        "#92C5DE",
+        "#FDDBC7",
+        "#F4A582",
+        "#D6604D",
+        "#B2182B"
+      ],
+      "axis": {
+        "linewidth": 1.5,
+        "tick_dir": "out",
+        "tick_len": 5.0,
+        "tick_width": 1.5,
+        "minor": true,
+        "minor_per_major": 2,
+        "x_major": 0.0,
+        "y_major": 0.0,
+        "x_min": "-0.5",
+        "x_max": "6.5",
+        "y_min": "0",
+        "y_max": "140",
+        "show_top_right": true,
+        "sides": {
+          "bottom": {
+            "major": true,
+            "minor": false,
+            "labels": true
+          },
+          "top": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          },
+          "left": {
+            "major": true,
+            "minor": false,
+            "labels": true
+          },
+          "right": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          }
+        },
+        "titles": {
+          "x": "",
+          "y": ""
+        },
+        "title_size": {
+          "x": 0,
+          "y": 0
+        },
+        "title_cfg": {
+          "x": {
+            "color": "#000000",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "normal",
+            "style": "normal",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          },
+          "y": {
+            "color": "#000000",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "normal",
+            "style": "normal",
+            "sub_ratio": 0.68,
+            "rise": 0.0,
+            "drop": 0.18,
+            "sup_dx": -0.25,
+            "sub_dx": 0.0
+          }
+        },
+        "tick_label_size": 0,
+        "categorical": {
+          "x": true,
+          "y": false
+        },
+        "cat_labels": {
+          "x": "",
+          "y": ""
+        },
+        "tick_len_minor": 3.0
+      },
+      "legend": {
+        "show": true,
+        "loc": "best",
+        "ncol": 2,
+        "frameon": false,
+        "alpha": 1.0,
+        "border_width": 0.8,
+        "items": [
+          "2 mV/s",
+          "5 mV/s",
+          "10 mV/s",
+          "20 mV/s",
+          "50 mV/s",
+          "100 mV/s",
+          "200 mV/s"
+        ],
+        "handle_length": 2.0,
+        "handle_height": 0.7,
+        "handle_textpad": 0.1,
+        "label_spacing": 0.2,
+        "column_spacing": 0.2,
+        "anchor": {
+          "on": false,
+          "leg_corner": "upper right",
+          "x": 1.0,
+          "y": 1.0
+        }
+      },
+      "grid": {
+        "show": false,
+        "style": "--",
+        "width": 0.6,
+        "alpha": 0.4,
+        "color": "#999999"
+      },
+      "scatter": {
+        "mode": "independent",
+        "marker": "o",
+        "fill": "实心",
+        "face_color": "#FFFFFF",
+        "edge_color": "",
+        "edge_width": 2.0,
+        "size": 16.0,
+        "vline": true,
+        "vline_color": "",
+        "vline_width": 2.0,
+        "vline_style": "--",
+        "vline_alpha": 1.0,
+        "face_colors": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "vline_colors": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "edge_colors": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ]
+      },
+      "eis": {
+        "equal_scale": true,
+        "x_max": 0.0,
+        "y_max": 0.0,
+        "inset": false,
+        "inset_x_max": 0
+      },
+      "texts": []
+    },
+    "gcd_overlay": {
+      "canvas": {
+        "width": 180.0,
+        "height": 140.0,
+        "dpi": 600,
+        "unit": "mm",
+        "transparent": false,
+        "margin": {
+          "left": 22.0,
+          "right": 4.0,
+          "top": 4.0,
+          "bottom": 16.0
+        }
+      },
+      "font": {
+        "family": "Arial",
+        "cjk": "SimSun",
+        "base": 14,
+        "label": 14,
+        "tick": 14,
+        "legend": 14,
+        "title": 14
+      },
+      "line": {
+        "width": 1.8,
+        "marker": 5,
+        "cap_size": 8
+      },
+      "mathtext": {
+        "fontset": "custom",
+        "rm": "",
+        "it": "",
+        "bf": "",
+        "sub_ratio": 0.68,
+        "rise": 0.4,
+        "drop": 0.18,
+        "sup_dx": 0.0,
+        "sub_dx": 0.0
+      },
+      "colors": [
+        "#1F6E5A",
+        "#38699E",
+        "#A63E76",
+        "#D2603A",
+        "#7A5AA8",
+        "#4E9BC8",
+        "#8C8C8C"
+      ],
+      "axis": {
+        "linewidth": 1.2,
+        "tick_dir": "in",
+        "tick_len": 5,
+        "tick_width": 1.0,
+        "minor": true,
+        "minor_per_major": 2,
+        "x_major": 0,
+        "y_major": 0,
+        "x_min": "",
+        "x_max": "",
+        "y_min": "",
+        "y_max": "",
+        "show_top_right": true,
+        "sides": {
+          "bottom": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "top": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          },
+          "left": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "right": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          }
+        },
+        "titles": {
+          "x": "",
+          "y": ""
+        },
+        "title_size": {
+          "x": 0,
+          "y": 0
+        },
+        "title_cfg": {
+          "x": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          },
+          "y": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          }
+        },
+        "tick_label_size": 0,
+        "categorical": {
+          "x": false,
+          "y": false
+        },
+        "cat_labels": {
+          "x": "",
+          "y": ""
+        },
+        "tick_len_minor": 3.0
+      },
+      "legend": {
+        "show": true,
+        "loc": "best",
+        "ncol": 1,
+        "frameon": false,
+        "alpha": 1.0,
+        "border_width": 0.8,
+        "items": [],
+        "handle_length": 2.0,
+        "handle_height": 0.7,
+        "handle_textpad": 0.8,
+        "label_spacing": 0.5,
+        "column_spacing": 2.0,
+        "anchor": {
+          "on": false,
+          "leg_corner": "upper right",
+          "x": 1.0,
+          "y": 1.0
+        }
+      },
+      "grid": {
+        "show": false,
+        "style": "--",
+        "width": 0.6,
+        "alpha": 0.4,
+        "color": "#999999"
+      },
+      "scatter": {
+        "marker": "o",
+        "fill": "实心",
+        "face_color": "",
+        "edge_color": "",
+        "edge_width": 1.2,
+        "size": 8,
+        "vline": true,
+        "vline_color": "",
+        "vline_width": 1.8,
+        "vline_style": "-",
+        "vline_alpha": 1.0,
+        "face_colors": [],
+        "edge_colors": [],
+        "vline_colors": [],
+        "mode": "unified"
+      },
+      "eis": {
+        "equal_scale": true,
+        "x_max": 0,
+        "y_max": 0,
+        "inset": false,
+        "inset_x_max": 0
+      },
+      "texts": []
+    },
+    "gcd_cap": {
+      "canvas": {
+        "width": 180.0,
+        "height": 140.0,
+        "dpi": 600,
+        "unit": "mm",
+        "transparent": false,
+        "margin": {
+          "left": 22.0,
+          "right": 4.0,
+          "top": 4.0,
+          "bottom": 16.0
+        }
+      },
+      "font": {
+        "family": "Arial",
+        "cjk": "SimSun",
+        "base": 14,
+        "label": 14,
+        "tick": 14,
+        "legend": 14,
+        "title": 14
+      },
+      "line": {
+        "width": 1.8,
+        "marker": 5,
+        "cap_size": 8
+      },
+      "mathtext": {
+        "fontset": "custom",
+        "rm": "",
+        "it": "",
+        "bf": "",
+        "sub_ratio": 0.68,
+        "rise": 0.4,
+        "drop": 0.18,
+        "sup_dx": 0.0,
+        "sub_dx": 0.0
+      },
+      "colors": [
+        "#1F6E5A",
+        "#38699E",
+        "#A63E76",
+        "#D2603A",
+        "#7A5AA8",
+        "#4E9BC8",
+        "#8C8C8C"
+      ],
+      "axis": {
+        "linewidth": 1.2,
+        "tick_dir": "in",
+        "tick_len": 5,
+        "tick_width": 1.0,
+        "minor": true,
+        "minor_per_major": 2,
+        "x_major": 0,
+        "y_major": 0,
+        "x_min": "",
+        "x_max": "",
+        "y_min": "",
+        "y_max": "",
+        "show_top_right": true,
+        "sides": {
+          "bottom": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "top": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          },
+          "left": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "right": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          }
+        },
+        "titles": {
+          "x": "",
+          "y": ""
+        },
+        "title_size": {
+          "x": 0,
+          "y": 0
+        },
+        "title_cfg": {
+          "x": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          },
+          "y": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          }
+        },
+        "tick_label_size": 0,
+        "categorical": {
+          "x": false,
+          "y": false
+        },
+        "cat_labels": {
+          "x": "",
+          "y": ""
+        },
+        "tick_len_minor": 3.0
+      },
+      "legend": {
+        "show": true,
+        "loc": "best",
+        "ncol": 1,
+        "frameon": false,
+        "alpha": 1.0,
+        "border_width": 0.8,
+        "items": [],
+        "handle_length": 2.0,
+        "handle_height": 0.7,
+        "handle_textpad": 0.8,
+        "label_spacing": 0.5,
+        "column_spacing": 2.0,
+        "anchor": {
+          "on": false,
+          "leg_corner": "upper right",
+          "x": 1.0,
+          "y": 1.0
+        }
+      },
+      "grid": {
+        "show": false,
+        "style": "--",
+        "width": 0.6,
+        "alpha": 0.4,
+        "color": "#999999"
+      },
+      "scatter": {
+        "marker": "o",
+        "fill": "实心",
+        "face_color": "",
+        "edge_color": "",
+        "edge_width": 1.2,
+        "size": 8,
+        "vline": true,
+        "vline_color": "",
+        "vline_width": 1.8,
+        "vline_style": "-",
+        "vline_alpha": 1.0,
+        "face_colors": [],
+        "edge_colors": [],
+        "vline_colors": [],
+        "mode": "unified"
+      },
+      "eis": {
+        "equal_scale": true,
+        "x_max": 0,
+        "y_max": 0,
+        "inset": false,
+        "inset_x_max": 0
+      },
+      "texts": []
+    },
+    "EIS": {
+      "canvas": {
+        "width": 180.0,
+        "height": 140.0,
+        "dpi": 600,
+        "unit": "mm",
+        "transparent": false,
+        "margin": {
+          "left": 22.0,
+          "right": 4.0,
+          "top": 4.0,
+          "bottom": 16.0
+        }
+      },
+      "font": {
+        "family": "Arial",
+        "cjk": "SimSun",
+        "base": 14,
+        "label": 14,
+        "tick": 14,
+        "legend": 14,
+        "title": 14
+      },
+      "line": {
+        "width": 1.8,
+        "marker": 5,
+        "cap_size": 8
+      },
+      "mathtext": {
+        "fontset": "custom",
+        "rm": "",
+        "it": "",
+        "bf": "",
+        "sub_ratio": 0.68,
+        "rise": 0.4,
+        "drop": 0.18,
+        "sup_dx": 0.0,
+        "sub_dx": 0.0
+      },
+      "colors": [
+        "#1F6E5A",
+        "#38699E",
+        "#A63E76",
+        "#D2603A",
+        "#7A5AA8",
+        "#4E9BC8",
+        "#8C8C8C"
+      ],
+      "axis": {
+        "linewidth": 1.2,
+        "tick_dir": "in",
+        "tick_len": 5,
+        "tick_width": 1.0,
+        "minor": true,
+        "minor_per_major": 2,
+        "x_major": 0,
+        "y_major": 0,
+        "x_min": "",
+        "x_max": "",
+        "y_min": "",
+        "y_max": "",
+        "show_top_right": true,
+        "sides": {
+          "bottom": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "top": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          },
+          "left": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "right": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          }
+        },
+        "titles": {
+          "x": "",
+          "y": ""
+        },
+        "title_size": {
+          "x": 0,
+          "y": 0
+        },
+        "title_cfg": {
+          "x": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          },
+          "y": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          }
+        },
+        "tick_label_size": 0,
+        "categorical": {
+          "x": false,
+          "y": false
+        },
+        "cat_labels": {
+          "x": "",
+          "y": ""
+        },
+        "tick_len_minor": 3.0
+      },
+      "legend": {
+        "show": true,
+        "loc": "best",
+        "ncol": 1,
+        "frameon": false,
+        "alpha": 1.0,
+        "border_width": 0.8,
+        "items": [],
+        "handle_length": 2.0,
+        "handle_height": 0.7,
+        "handle_textpad": 0.8,
+        "label_spacing": 0.5,
+        "column_spacing": 2.0,
+        "anchor": {
+          "on": false,
+          "leg_corner": "upper right",
+          "x": 1.0,
+          "y": 1.0
+        }
+      },
+      "grid": {
+        "show": false,
+        "style": "--",
+        "width": 0.6,
+        "alpha": 0.4,
+        "color": "#999999"
+      },
+      "scatter": {
+        "marker": "o",
+        "fill": "实心",
+        "face_color": "",
+        "edge_color": "",
+        "edge_width": 1.2,
+        "size": 8,
+        "vline": true,
+        "vline_color": "",
+        "vline_width": 1.8,
+        "vline_style": "-",
+        "vline_alpha": 1.0,
+        "face_colors": [],
+        "edge_colors": [],
+        "vline_colors": [],
+        "mode": "unified"
+      },
+      "eis": {
+        "equal_scale": true,
+        "x_max": 0,
+        "y_max": 0,
+        "inset": false,
+        "inset_x_max": 0
+      },
+      "texts": []
+    },
+    "cycle": {
+      "canvas": {
+        "width": 180.0,
+        "height": 140.0,
+        "dpi": 600,
+        "unit": "mm",
+        "transparent": false,
+        "margin": {
+          "left": 22.0,
+          "right": 4.0,
+          "top": 4.0,
+          "bottom": 16.0
+        }
+      },
+      "font": {
+        "family": "Arial",
+        "cjk": "SimSun",
+        "base": 14,
+        "label": 14,
+        "tick": 14,
+        "legend": 14,
+        "title": 14
+      },
+      "line": {
+        "width": 1.8,
+        "marker": 5,
+        "cap_size": 8
+      },
+      "mathtext": {
+        "fontset": "custom",
+        "rm": "",
+        "it": "",
+        "bf": "",
+        "sub_ratio": 0.68,
+        "rise": 0.4,
+        "drop": 0.18,
+        "sup_dx": 0.0,
+        "sub_dx": 0.0
+      },
+      "colors": [
+        "#1F6E5A",
+        "#38699E",
+        "#A63E76",
+        "#D2603A",
+        "#7A5AA8",
+        "#4E9BC8",
+        "#8C8C8C"
+      ],
+      "axis": {
+        "linewidth": 1.2,
+        "tick_dir": "in",
+        "tick_len": 5,
+        "tick_width": 1.0,
+        "minor": true,
+        "minor_per_major": 2,
+        "x_major": 0,
+        "y_major": 0,
+        "x_min": "",
+        "x_max": "",
+        "y_min": "",
+        "y_max": "",
+        "show_top_right": true,
+        "sides": {
+          "bottom": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "top": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          },
+          "left": {
+            "major": true,
+            "minor": true,
+            "labels": true
+          },
+          "right": {
+            "major": false,
+            "minor": false,
+            "labels": false
+          }
+        },
+        "titles": {
+          "x": "",
+          "y": ""
+        },
+        "title_size": {
+          "x": 0,
+          "y": 0
+        },
+        "title_cfg": {
+          "x": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          },
+          "y": {
+            "color": "",
+            "pad": 0,
+            "shift_x": 0.0,
+            "shift_y": 0.0,
+            "weight": "",
+            "style": "",
+            "sub_ratio": 0.68,
+            "rise": 0.4,
+            "drop": 0.18,
+            "sup_dx": 0.0,
+            "sub_dx": 0.0
+          }
+        },
+        "tick_label_size": 0,
+        "categorical": {
+          "x": false,
+          "y": false
+        },
+        "cat_labels": {
+          "x": "",
+          "y": ""
+        },
+        "tick_len_minor": 3.0
+      },
+      "legend": {
+        "show": true,
+        "loc": "best",
+        "ncol": 1,
+        "frameon": false,
+        "alpha": 1.0,
+        "border_width": 0.8,
+        "items": [],
+        "handle_length": 2.0,
+        "handle_height": 0.7,
+        "handle_textpad": 0.8,
+        "label_spacing": 0.5,
+        "column_spacing": 2.0,
+        "anchor": {
+          "on": false,
+          "leg_corner": "upper right",
+          "x": 1.0,
+          "y": 1.0
+        }
+      },
+      "grid": {
+        "show": false,
+        "style": "--",
+        "width": 0.6,
+        "alpha": 0.4,
+        "color": "#999999"
+      },
+      "scatter": {
+        "marker": "o",
+        "fill": "实心",
+        "face_color": "",
+        "edge_color": "",
+        "edge_width": 1.2,
+        "size": 8,
+        "vline": true,
+        "vline_color": "",
+        "vline_width": 1.8,
+        "vline_style": "-",
+        "vline_alpha": 1.0,
+        "face_colors": [],
+        "edge_colors": [],
+        "vline_colors": [],
+        "mode": "unified"
+      },
+      "eis": {
+        "equal_scale": true,
+        "x_max": 0,
+        "y_max": 0,
+        "inset": false,
+        "inset_x_max": 0
+      },
+      "texts": []
+    }
+  },
+  "output": {
+    "formats": [
+      "png"
+    ],
+    "dpi": 600
+  }
+}

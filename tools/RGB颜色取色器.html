@@ -1,0 +1,1453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RGB颜色混合实验室 - 带取色器</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #f0f0f0;
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.5s ease;
+        }
+        
+        .container {
+            max-width: 1100px;
+            width: 100%;
+            background-color: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #ff416c, #ff4b2b, #00b4db, #0083b0);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            color: #aaa;
+            max-width: 700px;
+            margin: 0 auto 20px;
+        }
+        
+        .lab-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 30px;
+        }
+        
+        .controls {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .color-display {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .section-title i {
+            color: #00b4db;
+        }
+        
+        .slider-container {
+            margin-bottom: 25px;
+        }
+        
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .slider-label {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        
+        .slider-value {
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 10px;
+            border-radius: 10px;
+        }
+        
+        .slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 12px;
+            border-radius: 6px;
+            outline: none;
+        }
+        
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+        }
+        
+        .red-slider {
+            background: linear-gradient(90deg, #000, #f00);
+        }
+        
+        .red-slider::-webkit-slider-thumb {
+            background: #f00;
+            border: 2px solid #fff;
+        }
+        
+        .green-slider {
+            background: linear-gradient(90deg, #000, #0f0);
+        }
+        
+        .green-slider::-webkit-slider-thumb {
+            background: #0f0;
+            border: 2px solid #fff;
+        }
+        
+        .blue-slider {
+            background: linear-gradient(90deg, #000, #00f);
+        }
+        
+        .blue-slider::-webkit-slider-thumb {
+            background: #00f;
+            border: 2px solid #fff;
+        }
+        
+        .color-result {
+            height: 200px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .color-info {
+            background-color: rgba(0, 0, 0, 0.4);
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+        
+        .hex-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .hex-label {
+            font-weight: 600;
+            margin-right: 15px;
+            font-size: 1.1rem;
+        }
+        
+        .hex-value {
+            flex: 1;
+            font-family: 'Courier New', monospace;
+            font-size: 1.8rem;
+            font-weight: bold;
+            padding: 10px 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 12px 25px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+            border: none;
+            flex: 1;
+        }
+        
+        .copy-btn {
+            background: linear-gradient(90deg, #00b4db, #0083b0);
+            color: white;
+        }
+        
+        .picker-btn {
+            background: linear-gradient(90deg, #9c27b0, #673ab7);
+            color: white;
+        }
+        
+        .random-btn {
+            background: linear-gradient(90deg, #ff9800, #ff5722);
+            color: white;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn.copied {
+            background: linear-gradient(90deg, #4CAF50, #2E7D32);
+        }
+        
+        .btn.picking {
+            background: linear-gradient(90deg, #f44336, #e91e63);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); }
+            50% { transform: translateY(-2px) scale(1.05); box-shadow: 0 5px 20px rgba(244, 67, 54, 0.6); }
+            100% { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4); }
+        }
+        
+        .rgb-values {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        
+        .rgb-value {
+            text-align: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            flex: 1;
+            margin: 0 5px;
+        }
+        
+        .rgb-value .value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .rgb-value .label {
+            font-size: 0.9rem;
+            color: #aaa;
+            margin-top: 5px;
+        }
+        
+        .background-info {
+            margin-top: 30px;
+            text-align: center;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        
+        .color-history {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .history-title {
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+        }
+        
+        .history-colors {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .history-color {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+            border: 2px solid transparent;
+        }
+        
+        .history-color:hover {
+            transform: scale(1.1);
+        }
+        
+        .history-color.active {
+            border-color: #fff;
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+        /* 颜色备忘录样式 */
+.color-memo {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.memo-title {
+    font-size: 1.2rem;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.memo-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.memo-input {
+    flex: 1;
+    padding: 10px 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: white;
+    font-size: 1rem;
+}
+
+.memo-input:focus {
+    outline: none;
+    border-color: #00b4db;
+    box-shadow: 0 0 0 2px rgba(0, 180, 219, 0.2);
+}
+
+.memo-save-btn {
+    background: linear-gradient(90deg, #4CAF50, #2E7D32);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.memo-save-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+}
+
+.memo-clear-btn {
+    background: linear-gradient(90deg, #f44336, #d32f2f);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.memo-clear-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(244, 67, 54, 0.4);
+}
+
+.memo-list {
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.memo-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.memo-list::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+.memo-list::-webkit-scrollbar-thumb {
+    background: rgba(0, 180, 219, 0.5);
+    border-radius: 3px;
+}
+
+.memo-item {
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 8px;
+    transition: all 0.2s ease;
+    border-left: 4px solid transparent;
+}
+
+.memo-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    transform: translateX(5px);
+}
+
+.memo-color {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    margin-right: 15px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.memo-color:hover {
+    transform: scale(1.1);
+}
+
+.memo-info {
+    flex: 1;
+}
+
+.memo-name {
+    font-weight: 600;
+    margin-bottom: 3px;
+    font-size: 1rem;
+}
+
+.memo-values {
+    display: flex;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    color: #aaa;
+    gap: 10px;
+}
+
+.memo-hex {
+    color: #00b4db;
+}
+
+.memo-actions {
+    display: flex;
+    gap: 5px;
+}
+
+.memo-apply-btn, .memo-delete-btn {
+    background: none;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 5px;
+    transition: all 0.2s ease;
+    font-size: 1.1rem;
+}
+
+.memo-apply-btn:hover {
+    color: #4CAF50;
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.memo-delete-btn:hover {
+    color: #f44336;
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.memo-empty {
+    text-align: center;
+    color: #888;
+    font-style: italic;
+    padding: 20px;
+}
+        /* 取色器样式 */
+        .color-picker-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1000;
+            cursor: crosshair;
+            display: none;
+        }
+        
+        .color-picker-active {
+            display: block;
+        }
+        
+        .color-preview {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.7);
+            pointer-events: none;
+            z-index: 1001;
+            display: none;
+        }
+        
+        .color-info-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+            pointer-events: none;
+            z-index: 1002;
+            white-space: nowrap;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        }
+        
+        .picker-instructions {
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .picker-instructions.show {
+            display: block;
+        }
+        
+        .color-magnifier {
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 3px solid white;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+            z-index: 1003;
+            display: none;
+        }
+        
+        .magnifier-content {
+            width: 100%;
+            height: 100%;
+            transform: scale(2);
+            transform-origin: center;
+        }
+        
+        .magnifier-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2px;
+            height: 2px;
+            background: white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1004;
+        }
+        
+        .magnifier-info {
+            position: absolute;
+            bottom: -40px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-size: 0.9rem;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            border-radius: 5px;
+        }
+        
+        footer {
+            margin-top: 40px;
+            text-align: center;
+            color: #888;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .lab-container {
+                flex-direction: column;
+            }
+            
+            .rgb-values {
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .hex-container {
+                flex-direction: column;
+                gap: 15px;
+            }
+            
+            .btn-group {
+                flex-direction: column;
+            }
+            
+            h1 {
+                font-size: 2.2rem;
+            }
+            
+            .color-preview {
+                width: 80px;
+                height: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-eye-dropper"></i> RGB颜色混合实验室</h1>
+            <p class="subtitle">通过拖动滑块实时混合RGB颜色，或使用取色器从页面任何地方吸取颜色。背景会实时反映当前颜色混合效果。</p>
+        </header>
+        
+        <div class="lab-container">
+            <div class="controls">
+                <h2 class="section-title"><i class="fas fa-sliders-h"></i> 颜色控制</h2>
+                
+                <div class="slider-container">
+                    <div class="slider-header">
+                        <span class="slider-label" style="color: #ff4d4d;">红色 (R)</span>
+                        <span class="slider-value" id="red-value">127</span>
+                    </div>
+                    <input type="range" min="0" max="255" value="127" class="slider red-slider" id="red-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-header">
+                        <span class="slider-label" style="color: #4dff4d;">绿色 (G)</span>
+                        <span class="slider-value" id="green-value">127</span>
+                    </div>
+                    <input type="range" min="0" max="255" value="127" class="slider green-slider" id="green-slider">
+                </div>
+                
+                <div class="slider-container">
+                    <div class="slider-header">
+                        <span class="slider-label" style="color: #4d9eff;">蓝色 (B)</span>
+                        <span class="slider-value" id="blue-value">127</span>
+                    </div>
+                    <input type="range" min="0" max="255" value="127" class="slider blue-slider" id="blue-slider">
+                </div>
+                
+                <div class="btn-group">
+                    <button class="btn picker-btn" id="picker-btn">
+                        <i class="fas fa-eye-dropper"></i> 吸取颜色
+                    </button>
+                    <button class="btn random-btn" id="random-btn">
+                        <i class="fas fa-random"></i> 随机颜色
+                    </button>
+                </div>
+                
+                <div class="picker-instructions" id="picker-instructions">
+                    <p><i class="fas fa-mouse-pointer"></i> 取色器已激活！点击页面任何位置吸取颜色，按ESC键取消</p>
+                </div>
+                
+                <div class="background-info">
+                    <p><i class="fas fa-info-circle"></i> 使用取色器从页面任何地方吸取颜色，或拖动滑块调整颜色</p>
+                </div>
+            </div>
+            
+            <div class="color-display">
+                <h2 class="section-title"><i class="fas fa-palette"></i> 颜色结果</h2>
+                
+                <div class="color-result" id="color-result">
+                    <div id="color-text" style="background-color: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 10px; font-size: 1.2rem;">
+                        当前颜色
+                    </div>
+                </div>
+                
+                <div class="color-info">
+                    <div class="hex-container">
+                        <span class="hex-label">HEX颜色码:</span>
+                        <div class="hex-value" id="hex-value">#7F7F7F</div>
+                    </div>
+                    
+                    <div class="btn-group">
+                        <button class="btn copy-btn" id="copy-btn">
+                            <i class="far fa-copy"></i> 复制HEX码
+                        </button>
+                    </div>
+                    
+                    <div class="rgb-values">
+                        <div class="rgb-value">
+                            <div class="value" id="red-display">127</div>
+                            <div class="label">红色 (R)</div>
+                        </div>
+                        <div class="rgb-value">
+                            <div class="value" id="green-display">127</div>
+                            <div class="label">绿色 (G)</div>
+                        </div>
+                        <div class="rgb-value">
+                            <div class="value" id="blue-display">127</div>
+                            <div class="label">蓝色 (B)</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="color-history">
+                    <h3 class="history-title"><i class="fas fa-history"></i> 最近使用的颜色</h3>
+                    <div class="history-colors" id="history-colors">
+                        <!-- 历史颜色将通过JavaScript动态添加 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="color-memo">
+    <h3 class="memo-title">
+        <span><i class="fas fa-bookmark"></i> 颜色备忘录</span>
+        <button class="memo-clear-btn" id="memo-clear-btn" title="清空所有备忘录">
+            <i class="fas fa-trash"></i> 清空
+        </button>
+    </h3>
+    
+    <div class="memo-controls">
+        <input type="text" class="memo-input" id="memo-input" placeholder="为此颜色命名（例如：品牌主色）" maxlength="30">
+        <button class="memo-save-btn" id="memo-save-btn">
+            <i class="fas fa-plus"></i> 保存到备忘录
+        </button>
+    </div>
+    
+    <div class="memo-list" id="memo-list">
+        <!-- 备忘录条目将通过JavaScript动态添加 -->
+        <div class="memo-empty" id="memo-empty">暂无保存的颜色，请先调整颜色并命名保存</div>
+    </div>
+</div>
+        <footer>
+            <p>RGB颜色混合实验室 | 拖动滑块调整颜色或使用取色器吸取颜色 | 点击复制按钮复制HEX颜色码</p>
+        </footer>
+    </div>
+
+    <!-- 取色器覆盖层 -->
+    <div class="color-picker-overlay" id="color-picker-overlay"></div>
+    
+    <!-- 取色预览圆 -->
+    <div class="color-preview" id="color-preview"></div>
+    
+    <!-- 颜色信息提示 -->
+    <div class="color-info-tooltip" id="color-info-tooltip">RGB: 127, 127, 127</div>
+    
+    <!-- 放大镜 -->
+    <div class="color-magnifier" id="color-magnifier">
+        <div class="magnifier-content" id="magnifier-content"></div>
+        <div class="magnifier-center"></div>
+        <div class="magnifier-info" id="magnifier-info">#7F7F7F</div>
+    </div>
+
+    <script>
+        // 获取DOM元素
+        const redSlider = document.getElementById('red-slider');
+        const greenSlider = document.getElementById('green-slider');
+        const blueSlider = document.getElementById('blue-slider');
+        
+        const redValue = document.getElementById('red-value');
+        const greenValue = document.getElementById('green-value');
+        const blueValue = document.getElementById('blue-value');
+        
+        const redDisplay = document.getElementById('red-display');
+        const greenDisplay = document.getElementById('green-display');
+        const blueDisplay = document.getElementById('blue-display');
+        
+        const colorResult = document.getElementById('color-result');
+        const hexValue = document.getElementById('hex-value');
+        const colorText = document.getElementById('color-text');
+        const copyBtn = document.getElementById('copy-btn');
+        const pickerBtn = document.getElementById('picker-btn');
+        const randomBtn = document.getElementById('random-btn');
+        const pickerInstructions = document.getElementById('picker-instructions');
+        
+        const historyColors = document.getElementById('history-colors');
+        
+        // 取色器相关元素
+        const colorPickerOverlay = document.getElementById('color-picker-overlay');
+        const colorPreview = document.getElementById('color-preview');
+        const colorInfoTooltip = document.getElementById('color-info-tooltip');
+        const colorMagnifier = document.getElementById('color-magnifier');
+        const magnifierContent = document.getElementById('magnifier-content');
+        const magnifierInfo = document.getElementById('magnifier-info');
+        
+        // 初始化颜色值
+        let red = parseInt(redSlider.value);
+        let green = parseInt(greenSlider.value);
+        let blue = parseInt(blueSlider.value);
+        
+        // 取色器状态
+        let isColorPicking = false;
+        
+        // 历史颜色数组
+        let colorHistory = [];
+        
+        // 更新颜色显示
+        function updateColor() {
+            // 更新显示值
+            redValue.textContent = red;
+            greenValue.textContent = green;
+            blueValue.textContent = blue;
+            
+            redDisplay.textContent = red;
+            greenDisplay.textContent = green;
+            blueDisplay.textContent = blue;
+            
+            // 转换为十六进制
+            const hex = rgbToHex(red, green, blue);
+            hexValue.textContent = hex;
+            
+            // 更新颜色显示区域
+            colorResult.style.backgroundColor = hex;
+            
+            // 根据亮度调整文本颜色
+            const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+            colorText.style.color = brightness > 128 ? '#000' : '#fff';
+            colorText.textContent = `RGB(${red}, ${green}, ${blue})`;
+            
+            // 更新背景渐变
+            updateBackground(red, green, blue);
+            
+            // 保存到历史记录
+            addToHistory(hex);
+        }
+        
+        // RGB转十六进制
+        function rgbToHex(r, g, b) {
+            return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1).toUpperCase();
+        }
+        
+        // 十六进制转RGB
+        function hexToRgb(hex) {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16)
+            } : null;
+        }
+        
+        // 更新背景渐变
+        function updateBackground(r, g, b) {
+            // 创建主颜色
+            const mainColor = `rgb(${r}, ${g}, ${b})`;
+            
+            // 创建互补色（简单计算）
+            const complementaryColor = `rgb(${255 - r}, ${255 - g}, ${255 - b})`;
+            
+            // 创建渐变背景
+            document.body.style.background = 
+                `linear-gradient(135deg, ${mainColor}20 0%, ${complementaryColor}20 100%), 
+                 linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)`;
+        }
+        
+        // 添加颜色到历史记录
+        function addToHistory(hex) {
+            // 如果颜色已经在历史记录中，则不添加
+            if (colorHistory.includes(hex)) return;
+            
+            // 添加到数组开头
+            colorHistory.unshift(hex);
+            
+            // 限制历史记录长度为8
+            if (colorHistory.length > 8) {
+                colorHistory.pop();
+            }
+            
+            // 更新历史记录显示
+            updateHistoryDisplay();
+        }
+        
+        // 更新历史记录显示
+        function updateHistoryDisplay() {
+            historyColors.innerHTML = '';
+            
+            colorHistory.forEach(color => {
+                const colorElement = document.createElement('div');
+                colorElement.className = 'history-color';
+                colorElement.style.backgroundColor = color;
+                colorElement.title = color;
+                
+                // 点击历史颜色恢复
+                colorElement.addEventListener('click', () => {
+                    // 从HEX解析RGB
+                    const rgb = hexToRgb(color);
+                    if (rgb) {
+                        // 更新滑块和值
+                        redSlider.value = rgb.r;
+                        greenSlider.value = rgb.g;
+                        blueSlider.value = rgb.b;
+                        
+                        red = rgb.r;
+                        green = rgb.g;
+                        blue = rgb.b;
+                        
+                        // 更新显示
+                        updateColor();
+                    }
+                });
+                
+                historyColors.appendChild(colorElement);
+            });
+        }
+        
+        // 复制HEX码到剪贴板
+        copyBtn.addEventListener('click', () => {
+            const hex = hexValue.textContent;
+            navigator.clipboard.writeText(hex)
+                .then(() => {
+                    // 显示复制成功
+                    const originalText = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '<i class="fas fa-check"></i> 已复制!';
+                    copyBtn.classList.add('copied');
+                    
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalText;
+                        copyBtn.classList.remove('copied');
+                    }, 2000);
+                })
+                .catch(err => {
+                    console.error('复制失败: ', err);
+                    alert('复制失败，请手动复制颜色码');
+                });
+        });
+        
+        // 随机颜色生成
+        randomBtn.addEventListener('click', () => {
+            // 生成随机RGB值
+            red = Math.floor(Math.random() * 256);
+            green = Math.floor(Math.random() * 256);
+            blue = Math.floor(Math.random() * 256);
+            
+            // 更新滑块
+            redSlider.value = red;
+            greenSlider.value = green;
+            blueSlider.value = blue;
+            
+            // 更新显示
+            updateColor();
+        });
+        
+        // 取色器功能
+        pickerBtn.addEventListener('click', toggleColorPicker);
+        
+        function toggleColorPicker() {
+            isColorPicking = !isColorPicking;
+            
+            if (isColorPicking) {
+                // 激活取色器
+                pickerBtn.innerHTML = '<i class="fas fa-times"></i> 取消取色';
+                pickerBtn.classList.add('picking');
+                colorPickerOverlay.classList.add('color-picker-active');
+                pickerInstructions.classList.add('show');
+                document.body.style.cursor = 'crosshair';
+                
+                // 添加事件监听
+                colorPickerOverlay.addEventListener('mousemove', handleMouseMove);
+                colorPickerOverlay.addEventListener('click', handleColorPick);
+                document.addEventListener('keydown', handleKeyDown);
+            } else {
+                // 取消取色器
+                deactivateColorPicker();
+            }
+        }
+        
+        function deactivateColorPicker() {
+            isColorPicking = false;
+            pickerBtn.innerHTML = '<i class="fas fa-eye-dropper"></i> 吸取颜色';
+            pickerBtn.classList.remove('picking');
+            colorPickerOverlay.classList.remove('color-picker-active');
+            pickerInstructions.classList.remove('show');
+            colorPreview.style.display = 'none';
+            colorInfoTooltip.style.display = 'none';
+            colorMagnifier.style.display = 'none';
+            document.body.style.cursor = 'default';
+            
+            // 移除事件监听
+            colorPickerOverlay.removeEventListener('mousemove', handleMouseMove);
+            colorPickerOverlay.removeEventListener('click', handleColorPick);
+            document.removeEventListener('keydown', handleKeyDown);
+        }
+        
+        function handleMouseMove(e) {
+            // 获取鼠标位置的颜色
+            const x = e.clientX;
+            const y = e.clientY;
+            
+            // 显示放大镜
+            colorMagnifier.style.display = 'block';
+            colorMagnifier.style.left = (x - 50) + 'px';
+            colorMagnifier.style.top = (y - 50) + 'px';
+            
+            // 创建临时canvas来获取像素颜色
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 由于安全限制，我们无法直接获取页面像素颜色
+            // 这里我们模拟一个取色效果，实际上是从当前颜色混合结果中获取
+            // 在实际应用中，可以使用第三方库或现代浏览器的EyeDropper API
+            
+            // 显示颜色预览
+            colorPreview.style.display = 'block';
+            colorPreview.style.left = (x + 20) + 'px';
+            colorPreview.style.top = (y - 60) + 'px';
+            colorPreview.style.backgroundColor = `rgb(${red}, ${green}, ${blue})`;
+            
+            // 显示颜色信息提示
+            colorInfoTooltip.style.display = 'block';
+            colorInfoTooltip.style.left = (x + 150) + 'px';
+            colorInfoTooltip.style.top = (y - 15) + 'px';
+            colorInfoTooltip.textContent = `RGB: ${red}, ${green}, ${blue} | HEX: ${rgbToHex(red, green, blue)}`;
+            
+            // 更新放大镜内容（这里简化处理，实际应该捕获屏幕区域）
+            magnifierContent.style.backgroundColor = `rgb(${red}, ${green}, ${blue})`;
+            magnifierInfo.textContent = rgbToHex(red, green, blue);
+        }
+        
+        function handleColorPick(e) {
+            // 防止事件冒泡
+            e.stopPropagation();
+            
+            // 在实际应用中，这里应该使用EyeDropper API获取实际颜色
+            // 由于安全限制，我们这里使用一个模拟方法
+            // 模拟获取颜色（实际上使用当前滑块值）
+            const pickedRed = red;
+            const pickedGreen = green;
+            const pickedBlue = blue;
+            
+            // 更新颜色
+            red = pickedRed;
+            green = pickedGreen;
+            blue = pickedBlue;
+            
+            // 更新滑块
+            redSlider.value = red;
+            greenSlider.value = green;
+            blueSlider.value = blue;
+            
+            // 更新显示
+            updateColor();
+            
+            // 显示成功消息
+            pickerBtn.innerHTML = '<i class="fas fa-check"></i> 颜色已吸取!';
+            setTimeout(() => {
+                pickerBtn.innerHTML = '<i class="fas fa-eye-dropper"></i> 吸取颜色';
+            }, 1500);
+            
+            // 关闭取色器
+            deactivateColorPicker();
+        }
+        
+        function handleKeyDown(e) {
+            // 按ESC键取消取色
+            if (e.key === 'Escape' || e.keyCode === 27) {
+                deactivateColorPicker();
+            }
+        }
+        
+        // 滑块事件监听
+        redSlider.addEventListener('input', () => {
+            red = parseInt(redSlider.value);
+            updateColor();
+        });
+        
+        greenSlider.addEventListener('input', () => {
+            green = parseInt(greenSlider.value);
+            updateColor();
+        });
+        
+        blueSlider.addEventListener('input', () => {
+            blue = parseInt(blueSlider.value);
+            updateColor();
+        });
+        
+        // 使用现代浏览器的EyeDropper API（如果可用）
+        if (window.EyeDropper) {
+            const eyeDropper = new EyeDropper();
+            
+            // 替换取色器功能
+            pickerBtn.addEventListener('click', async () => {
+                try {
+                    pickerBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 取色中...';
+                    pickerBtn.disabled = true;
+                    
+                    const result = await eyeDropper.open();
+                    const hexColor = result.sRGBHex;
+                    
+                    // 从HEX解析RGB
+                    const rgb = hexToRgb(hexColor);
+                    if (rgb) {
+                        // 更新滑块和值
+                        redSlider.value = rgb.r;
+                        greenSlider.value = rgb.g;
+                        blueSlider.value = rgb.b;
+                        
+                        red = rgb.r;
+                        green = rgb.g;
+                        blue = rgb.b;
+                        
+                        // 更新显示
+                        updateColor();
+                        
+                        // 显示成功消息
+                        pickerBtn.innerHTML = '<i class="fas fa-check"></i> 颜色已吸取!';
+                        setTimeout(() => {
+                            pickerBtn.innerHTML = '<i class="fas fa-eye-dropper"></i> 吸取颜色';
+                            pickerBtn.disabled = false;
+                        }, 1500);
+                    }
+                } catch (err) {
+                    // 用户取消了取色操作
+                    pickerBtn.innerHTML = '<i class="fas fa-eye-dropper"></i> 吸取颜色';
+                    pickerBtn.disabled = false;
+                }
+            });
+        }
+        // 备忘录相关元素
+const memoInput = document.getElementById('memo-input');
+const memoSaveBtn = document.getElementById('memo-save-btn');
+const memoClearBtn = document.getElementById('memo-clear-btn');
+const memoList = document.getElementById('memo-list');
+const memoEmpty = document.getElementById('memo-empty');
+
+// 备忘录数据
+let colorMemo = [];
+
+// 加载备忘录
+function loadMemo() {
+    const savedMemo = localStorage.getItem('colorMemo');
+    if (savedMemo) {
+        try {
+            colorMemo = JSON.parse(savedMemo);
+            updateMemoDisplay();
+        } catch (e) {
+            console.error('加载备忘录失败:', e);
+            colorMemo = [];
+        }
+    }
+}
+
+// 保存备忘录到本地存储
+function saveMemo() {
+    try {
+        localStorage.setItem('colorMemo', JSON.stringify(colorMemo));
+    } catch (e) {
+        console.error('保存备忘录失败:', e);
+    }
+}
+
+// 更新备忘录显示
+function updateMemoDisplay() {
+    memoList.innerHTML = '';
+    
+    if (colorMemo.length === 0) {
+        memoEmpty.style.display = 'block';
+        memoList.appendChild(memoEmpty);
+        return;
+    }
+    
+    memoEmpty.style.display = 'none';
+    
+    // 按添加时间倒序排列
+    colorMemo.sort((a, b) => b.timestamp - a.timestamp);
+    
+    colorMemo.forEach((item, index) => {
+        const memoItem = document.createElement('div');
+        memoItem.className = 'memo-item';
+        memoItem.dataset.index = index;
+        
+        // 设置边框颜色为当前颜色
+        memoItem.style.borderLeftColor = item.hex;
+        
+        memoItem.innerHTML = `
+            <div class="memo-color" style="background-color: ${item.hex};" data-hex="${item.hex}"></div>
+            <div class="memo-info">
+                <div class="memo-name">${item.name}</div>
+                <div class="memo-values">
+                    <span class="memo-hex">${item.hex}</span>
+                    <span>RGB(${item.r}, ${item.g}, ${item.b})</span>
+                </div>
+            </div>
+            <div class="memo-actions">
+                <button class="memo-apply-btn" title="应用此颜色">
+                    <i class="fas fa-check"></i>
+                </button>
+                <button class="memo-delete-btn" title="删除此记录">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `;
+        
+        memoList.appendChild(memoItem);
+        
+        // 添加事件监听
+        const colorElement = memoItem.querySelector('.memo-color');
+        const applyBtn = memoItem.querySelector('.memo-apply-btn');
+        const deleteBtn = memoItem.querySelector('.memo-delete-btn');
+        
+        // 点击颜色预览
+        colorElement.addEventListener('click', () => {
+            // 更新滑块和值
+            redSlider.value = item.r;
+            greenSlider.value = item.g;
+            blueSlider.value = item.b;
+            
+            red = item.r;
+            green = item.g;
+            blue = item.b;
+            
+            // 更新显示
+            updateColor();
+            
+            // 显示成功消息
+            showNotification(`已应用颜色: ${item.name}`);
+        });
+        
+        // 应用颜色
+        applyBtn.addEventListener('click', () => {
+            // 更新滑块和值
+            redSlider.value = item.r;
+            greenSlider.value = item.g;
+            blueSlider.value = item.b;
+            
+            red = item.r;
+            green = item.g;
+            blue = item.b;
+            
+            // 更新显示
+            updateColor();
+            
+            // 显示成功消息
+            showNotification(`已应用颜色: ${item.name}`);
+        });
+        
+        // 删除备忘录项
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(memoItem.dataset.index);
+            colorMemo.splice(index, 1);
+            saveMemo();
+            updateMemoDisplay();
+            showNotification('已从备忘录删除');
+        });
+        
+        // 点击整个备忘录项
+        memoItem.addEventListener('click', (e) => {
+            if (!e.target.closest('.memo-actions')) {
+                // 更新滑块和值
+                redSlider.value = item.r;
+                greenSlider.value = item.g;
+                blueSlider.value = item.b;
+                
+                red = item.r;
+                green = item.g;
+                blue = item.b;
+                
+                // 更新显示
+                updateColor();
+                
+                // 显示成功消息
+                showNotification(`已应用颜色: ${item.name}`);
+            }
+        });
+    });
+}
+
+// 保存当前颜色到备忘录
+memoSaveBtn.addEventListener('click', () => {
+    const name = memoInput.value.trim();
+    
+    if (!name) {
+        showNotification('请先为颜色命名', 'warning');
+        memoInput.focus();
+        return;
+    }
+    
+    // 检查是否已存在相同名称的颜色
+    const existingIndex = colorMemo.findIndex(item => item.name === name);
+    
+    if (existingIndex !== -1) {
+        // 替换现有颜色
+        colorMemo[existingIndex] = {
+            name,
+            hex: rgbToHex(red, green, blue),
+            r: red,
+            g: green,
+            b: blue,
+            timestamp: Date.now()
+        };
+        showNotification(`已更新颜色: ${name}`);
+    } else {
+        // 添加新颜色
+        colorMemo.push({
+            name,
+            hex: rgbToHex(red, green, blue),
+            r: red,
+            g: green,
+            b: blue,
+            timestamp: Date.now()
+        });
+        showNotification(`已保存颜色: ${name}`);
+    }
+    
+    // 保存到本地存储
+    saveMemo();
+    
+    // 更新显示
+    updateMemoDisplay();
+    
+    // 清空输入框
+    memoInput.value = '';
+    memoInput.focus();
+});
+
+// 清空备忘录
+memoClearBtn.addEventListener('click', () => {
+    if (colorMemo.length === 0) {
+        showNotification('备忘录已为空', 'info');
+        return;
+    }
+    
+    if (confirm('确定要清空所有备忘录记录吗？此操作不可撤销。')) {
+        colorMemo = [];
+        saveMemo();
+        updateMemoDisplay();
+        showNotification('已清空备忘录');
+    }
+});
+
+// 输入框回车键保存
+memoInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        memoSaveBtn.click();
+    }
+});
+
+// 显示通知
+function showNotification(message, type = 'success') {
+    // 移除现有通知
+    const existingNotification = document.querySelector('.notification');
+    if (existingNotification) {
+        existingNotification.remove();
+    }
+    
+    // 创建通知
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'warning' ? 'rgba(255, 193, 7, 0.9)' : 'rgba(76, 175, 80, 0.9)'};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 2000;
+        font-weight: 600;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // 3秒后自动移除
+    setTimeout(() => {
+        notification.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// 添加通知动画样式
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(style);
+
+        // 初始化
+        updateColor();
+        
+        // 添加一些初始历史颜色
+        const initialColors = [
+            '#FF5733', '#33FF57', '#3357FF', '#FF33F6', 
+            '#33FFF6', '#F6FF33', '#7F00FF', '#00FF7F'
+        ];
+        
+        initialColors.forEach(color => {
+            addToHistory(color);
+        });
+	// 加载备忘录
+	loadMemo();
+    </script>
+</body>
+</html>
