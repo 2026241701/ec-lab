@@ -1,7 +1,7 @@
 # ec-lab · CHI660 电化学数据批处理
 
 一句话定位：把 CHI660F 电化学工作站导出的 CV / GCD / EIS 原始 txt 批量读进来，
-算比电容、库伦效率、能量密度，做 EIS 等效电路拟合，出论文级图，最后一键导出 Excel。
+算比电容，做 EIS 等效电路拟合，保存模板后，批量可出图，可导出 Excel（待做）。
 
 > **English**: ec-lab is a desktop tool (Python + PySide6 + matplotlib) for
 > batch-processing CHI660F electrochemical data. It parses raw CV / GCD / EIS
@@ -23,7 +23,7 @@
 - **Excel 导出**：结果表按图类别分工作表导出，含汇总
 - **配置保险箱**：写回设置前自动备份（保留最近 10 份）、写入用原子替换、配置损坏自动从备份恢复，手改坏了也不会丢设置
 - **一键体检**：`python doctor.py` 检查 Python 版本、依赖包、绘图字体、数据路径、写入权限，还会跑一遍算法自检
-- **质量必须先登记**：每个样品的活性物质质量必须逐个填真实值，未登记的样品会被**跳过并提示**，程序绝不拿兜底值蒙一个结果
+- **质量必须先登记**：每个样品的活性物质质量必须逐个填真实值，未登记的样品会被**跳过并提示**
 
 ## 安装
 
@@ -112,6 +112,4 @@ MIT License，见 [LICENSE](LICENSE)。Copyright (c) 2026 Ding。
 
 ## 待补
 
-- `docs/screenshots/main.png`：主界面截图还没放进来（README 顶部那张图暂时是空的）。
-  补法：启动软件截一张，存成 `docs/screenshots/main.png` 即可。
 - 目前只有中文界面。英文界面和更完整的 API 文档后续再补。
