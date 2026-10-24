@@ -11,15 +11,16 @@ DEFAULTS = {
     "electrochem": {"mass_mg": 0.0, "time_step": 0.1},
     "cp_cycle": {"time_step": 0.1},
     "cv_cycle": {"split_mode": "peak"},
-    "cdi": {"mass_mg": 0.0, "cdi_step": "auto", "cycle_minutes": 60.0,
-            "volume_ml": 50.0, "calibration_base": 8.2236,
+    "cdi": {"mass_mg": 0.0, "cdi_step": "auto", "ads_minutes": 30.0,
+            "des_minutes": 30.0, "volume_ml": 50.0, "calibration_base": 8.2236,
             "calibration_scale": 1.97252, "conductivity_unit": "uS/cm",
             "cdi_tail": "reference"},
     "contribution": {},
 }
 RANGES = {"mass_mg": (0, 1e6), "time_step": (0.00001, 3600),
-          "cdi_step": (0.001, 3600), "cycle_minutes": (0.001, 10000),
-          "volume_ml": (0.0001, 1e6), "calibration_base": (-1e6, 1e6),
+          "cdi_step": (0.001, 3600), "ads_minutes": (0.001, 10000),
+          "des_minutes": (0.001, 10000), "volume_ml": (0.0001, 1e6),
+          "calibration_base": (-1e6, 1e6),
           "calibration_scale": (0.000001, 1e6)}
 ENUMS = {"split_mode": {"peak", "valley"},
          "conductivity_unit": {"uS/cm", "mS/cm", "S/m"},
@@ -50,7 +51,7 @@ def validate_template(document):
                 raise ValueError(f"模板参数 {name} 必须在 {low:g}–{high:g} 之间。")
             values[name] = float(value)
     if mode == "cdi" and values["cdi_step"] != "auto":
-        points = values["cycle_minutes"] * 60 / values["cdi_step"]
+        points = (values["ads_minutes"] + values["des_minutes"]) * 60 / values["cdi_step"]
         if not math.isclose(points, round(points)) or not 2 <= points <= 100_000:
             raise ValueError("CDI 每圈时长必须能被采样间隔整除，且每圈为 2–10 万个点。")
     return {"schema": SCHEMA, "version": VERSION, "mode": mode, "parameters": values}

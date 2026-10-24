@@ -127,10 +127,9 @@ class LegacyExcelDialog(QDialog):
             ("mass_mg", "活性物质质量 / mg", mass_mg if mass_mg is not None else 0, 0, 1e6, 4),
             ("time_step", "GCD / CP 采样间隔 / s", 0.1, 0.00001, 3600, 5),
             ("cdi_step", "CDI 采样间隔 / s", 5, 0.001, 3600, 3),
-            ("cycle_minutes", "每圈总时长 / min", 60, 0.001, 10000, 3),
-            ("volume_ml", "溶液体积 / mL", 50, 0.0001, 1e6, 4),
-            ("calibration_base", "标定截距（μS/cm）", 8.2236, -1e6, 1e6, 6),
-            ("calibration_scale", "标定斜率（μS/cm）/（mg/L）", 1.97252, 0.000001, 1e6, 6)):
+            ("ads_minutes", "吸附时长 / min", 30, 0.001, 10000, 3),
+            ("des_minutes", "脱附时长 / min", 30, 0.001, 10000, 3),
+            ("volume_ml", "溶液体积 / mL", 50, 0.0001, 1e6, 4)):
             field = QDoubleSpinBox()
             field.setDecimals(decimals)
             field.setRange(minimum, maximum)
@@ -139,6 +138,25 @@ class LegacyExcelDialog(QDialog):
                 field.setSpecialValueText("请填写本次质量")
             self.fields[key] = field
             self.form.addRow(title, field)
+
+        # 标准曲线 y = 斜率·x + 截距（斜率=原 calibration_scale，截距=原 calibration_base）
+        self.fields["calibration_scale"] = QDoubleSpinBox()
+        self.fields["calibration_scale"].setDecimals(6)
+        self.fields["calibration_scale"].setRange(0.000001, 1e6)
+        self.fields["calibration_scale"].setValue(1.97252)
+        self.fields["calibration_base"] = QDoubleSpinBox()
+        self.fields["calibration_base"].setDecimals(6)
+        self.fields["calibration_base"].setRange(-1e6, 1e6)
+        self.fields["calibration_base"].setValue(8.2236)
+        cal_row = QHBoxLayout()
+        cal_row.addWidget(QLabel("y = "))
+        cal_row.addWidget(self.fields["calibration_scale"], 1)
+        cal_row.addWidget(QLabel(" x + "))
+        cal_row.addWidget(self.fields["calibration_base"], 1)
+        self.calibration_container = QWidget()
+        self.calibration_container.setLayout(cal_row)
+        self.form.addRow("标准曲线（电导率）", self.calibration_container)
+
         self.sampling = QComboBox()
         self.sampling.addItem("从原始时间自动识别（推荐）", "auto")
         self.sampling.addItem("手动填写采样间隔", "manual")
@@ -159,16 +177,6 @@ class LegacyExcelDialog(QDialog):
         self.tail_policy.addItem("保留所有末圈，包括单个结束点", "include")
         self.tail_policy.addItem("只计算完整圈，尾部留在原始表", "complete")
         self.form.addRow("CDI 末圈", self.tail_policy)
-        self.template = QLineEdit()
-        self.template.setPlaceholderText("可选：已有的 CDI 七表模板，留空使用原脚本布局")
-        template_button = QPushButton("选择模板…")
-        template_button.clicked.connect(self._choose_template)
-        template_row = QHBoxLayout()
-        template_row.addWidget(self.template, 1)
-        template_row.addWidget(template_button)
-        self.template_container = QWidget()
-        self.template_container.setLayout(template_row)
-        self.form.addRow("CDI 格式模板", self.template_container)
         self.parameters_container.hide()
         panel.addWidget(self.parameters_container)
         self.template_note = QLabel("数据处理模板：当前参数")
@@ -233,14 +241,16 @@ class LegacyExcelDialog(QDialog):
         visible = {"electrochem": {"mass_mg", "time_step"}, "cp_cycle": {"time_step"},
                    "cv_cycle": set(), "cdi": set(self.fields)-{"time_step"}, "contribution": set()}[mode]
         for key, field in self.fields.items():
+            if key in ("calibration_scale", "calibration_base"):
+                continue
             self.form.setRowVisible(field, key in visible)
         self.form.setRowVisible(self.split_mode, mode == "cv_cycle")
         self.form.setRowVisible(self.sampling, mode == "cdi")
+        self.form.setRowVisible(self.calibration_container, mode == "cdi")
         self.mass_note.setVisible(mode == "cdi")
         self.mass_edit_button.setVisible(mode in {"cdi", "electrochem"})
         self.form.setRowVisible(self.units, mode == "cdi")
         self.form.setRowVisible(self.tail_policy, mode == "cdi")
-        self.form.setRowVisible(self.template_container, mode == "cdi")
         self.standard_button.setVisible(mode == "cdi")
         self.analysis_button.setVisible(mode != "cdi" and (self.embedded or hasattr(self.parent(), "run_analysis")))
         self.hint.setText({
@@ -279,8 +289,10 @@ class LegacyExcelDialog(QDialog):
         if mode == "cdi":
             sampling = ("采样间隔自动识别" if self.sampling.currentData() == "auto"
                         else f"采样 {self.fields['cdi_step'].value():g} 秒/点")
+            ads = self.fields["ads_minutes"].value()
+            des = self.fields["des_minutes"].value()
             self.summary.setText(f"{mass_text}  ·  体积 {self.fields['volume_ml'].value():g} mL  ·  {sampling}"
-                                 f"  ·  每圈 {self.fields['cycle_minutes'].value():g} 分钟")
+                                 f"  ·  每圈 吸附 {ads:g} + 脱附 {des:g} = {ads + des:g} 分钟")
         elif mode == "electrochem":
             self.summary.setText(f"{mass_text}  ·  GCD 采样 {self.fields['time_step'].value():g} 秒/点")
         elif mode == "cp_cycle":
@@ -473,6 +485,11 @@ class LegacyExcelDialog(QDialog):
             for key, value in document["parameters"].items():
                 if key == "mass_mg" and had_files:
                     continue
+                if key == "cycle_minutes":
+                    # 旧模板的单圈总时长 → 平均拆成吸附/脱附
+                    self.fields["ads_minutes"].setValue(value / 2)
+                    self.fields["des_minutes"].setValue(value / 2)
+                    continue
                 if key == "cdi_step":
                     automatic = value == "auto"
                     self.sampling.setCurrentIndex(self.sampling.findData("auto" if automatic else "manual"))
@@ -523,11 +540,6 @@ class LegacyExcelDialog(QDialog):
         self.log.appendPlainText("已保存参数模板：" + str(path))
         return True
 
-    def _choose_template(self):
-        path, _ = QFileDialog.getOpenFileName(self, "选择已有的 CDI 七表模板", "E:/Data", "Excel (*.xlsx)")
-        if path:
-            self.template.setText(path)
-
     def _set_busy(self, value):
         self._busy = value
         for control in (self.controls, self.process_button, self.analysis_button, self.standard_button, self.close_button):
@@ -555,8 +567,6 @@ class LegacyExcelDialog(QDialog):
                 self.parameter_toggle.setChecked(True)
                 self.fields["mass_mg"].setFocus()
                 return
-        if self.template.text().strip():
-            options["cdi_template"] = self.template.text().strip()
         mode, output = self.mode.currentData(), self.output.text().strip()
         self.log.appendPlainText("开始处理，原始文件只读…")
         if mode == "cdi":
@@ -632,7 +642,7 @@ class LegacyExcelDialog(QDialog):
 
     def _standard(self):
         from ec_conductivity_ui import ConductivityDialog
-        dialog = ConductivityDialog(self)
+        dialog = ConductivityDialog(self, output_dir=self.output.text().strip())
         dialog.add_paths(self._paths())
         dialog.exec()
 

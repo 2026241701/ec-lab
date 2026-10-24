@@ -88,7 +88,7 @@ class LegacyTests(unittest.TestCase):
     def test_cdi_keeps_formulas_and_caches_but_blanks_missing_and_zero_time(self):
         path = self.inputs/'conductivity.csv'
         path.write_text('time_s,conductivity_uS_cm\n0,100\n5,90\n10,80\n15,70\n20,60\n')
-        result = cdi_workbook(path,self.actual,{'cycle_minutes':1/3},progress=lambda _:None)
+        result = cdi_workbook(path,self.actual,{'ads_minutes':1/6,'des_minutes':1/6},progress=lambda _:None)
         formula, cached = load_workbook(result), load_workbook(result,data_only=True)
         self.addCleanup(formula.close);self.addCleanup(cached.close)
         self.assertEqual(formula.sheetnames,['原始数据','电导率','浓度','浓度差','吸附容量','吸附速率','吸附最大值'])

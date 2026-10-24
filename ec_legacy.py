@@ -8,6 +8,7 @@ from datetime import datetime
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 import sys
@@ -216,7 +217,15 @@ def _cdi_time_step(times, requested):
 def cdi_workbook(path, folder, options, progress=print, metadata=None):
     from ec_conductivity import process_files
     mass = _positive(options.get("mass_mg", 24), "质量")
-    minutes = _positive(options.get("cycle_minutes", 60), "每圈时长")
+    # 吸附/脱附时长是两个 UI 输入，相加得到每圈总时长；计算仍只按总时长
+    # 对称切圈（与 CDI参数版.py 原脚本一致）。为兼容旧调用保留 cycle_minutes。
+    if "ads_minutes" in options or "des_minutes" in options:
+        ads_minutes = _positive(options.get("ads_minutes", 30), "吸附时长")
+        des_minutes = _positive(options.get("des_minutes", 30), "脱附时长")
+        minutes = ads_minutes + des_minutes
+    else:
+        ads_minutes = des_minutes = None
+        minutes = _positive(options.get("cycle_minutes", 60), "每圈时长")
     volume_l = _positive(options.get("volume_ml", 50), "溶液体积") / 1000
     base = float(options.get("calibration_base", 8.2236))
     scale = _positive(options.get("calibration_scale", 1.97252), "标定斜率")
@@ -314,8 +323,12 @@ def cdi_workbook(path, folder, options, progress=print, metadata=None):
         caches["xl/worksheets/sheet7.xml"][f"{get_column_letter(circle+1)}2"] = float(np.max(capacity))
     wb.calculation = CalcProperties(calcId=0, fullCalcOnLoad=True)
     destination = Path(unused_path(folder / f"{path.stem}-处理.xlsx"))
-    wb.save(destination)
+    # Y12: write to a sibling temp file then atomically replace, so a process
+    # killed mid-write never leaves a half-written (corrupt) .xlsx behind.
+    tmp = destination.with_suffix(".tmp.xlsx")
+    wb.save(tmp)
     wb.close()
+    os.replace(tmp, destination)
     _cache_formulas(destination, caches)
     if metadata is not None:
         metadata.update(mass_mg=mass, sampling_seconds=step, automatic_sampling=automatic,
@@ -324,6 +337,8 @@ def cdi_workbook(path, folder, options, progress=print, metadata=None):
                         trailing_points_only_in_raw=len(values)-len(cycle_values),
                         tail_policy=tail, volume_ml=volume_l*1000,
                         calibration_base=base, calibration_scale=scale)
+        if ads_minutes is not None:
+            metadata.update(ads_minutes=ads_minutes, des_minutes=des_minutes)
     progress("CDI：保留七表与原公式；仅为零秒速率和末圈缺测补空白，避免除零和虚假吸附值。")
     return destination
 

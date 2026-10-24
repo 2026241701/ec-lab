@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QFormLayout, QComboBox, QTabWidget, QDialogButtonBox, QSizePolicy,
     QPlainTextEdit, QGridLayout, QColorDialog, QToolBar, QSlider, QStatusBar,
     QScrollArea, QInputDialog, QFrame, QRadioButton, QButtonGroup,
-    QToolButton,
+    QToolButton, QMenu,
 )
 from matplotlib.backends.backend_qtagg import (
     FigureCanvasQTAgg, NavigationToolbar2QT)
@@ -2223,8 +2223,11 @@ class 轴标题编辑(QWidget):
         f = QFormLayout()
         f.setContentsMargins(0, 0, 0, 0)
         f.setSpacing(4)
+        # 字段列不随内容伸缩：勾选/取消勾选时文本框宽度保持不变
+        f.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
 
         self.ed_text = QLineEdit()
+        self.ed_text.setFixedWidth(220)
         self.ed_text.setPlaceholderText("留空 = 不画这个标题")
         self.ed_text.setToolTip(
             "写法：上标 x^{-1}、下标 F_{x}，多个字符用大括号包住。\n"
@@ -2291,13 +2294,16 @@ class 轴标题编辑(QWidget):
         f.addRow(self.ck_pos)
 
         self.sp_pad = self._num(-60, 240, 0)
+        self.sp_pad.setFixedWidth(150)
         self.sp_pad.setSuffix(" 点")
         self.sp_pad.setToolTip("标题离刻度文字的距离。\n"
                                 "刻度多、字号大时 matplotlib 会自动重算，\n"
                                 "这里填的是额外加的距离。")
         self.sp_sx = self._num(-240, 240, 0)
+        self.sp_sx.setFixedWidth(150)
         self.sp_sx.setSuffix(" 点")
         self.sp_sy = self._num(-240, 240, 0)
+        self.sp_sy.setFixedWidth(150)
         self.sp_sy.setSuffix(" 点")
         for sp in (self.sp_pad, self.sp_sx, self.sp_sy):
             sp.valueChanged.connect(self._queue)
@@ -2319,12 +2325,11 @@ class 轴标题编辑(QWidget):
         on_p = self.ck_pos.isChecked()
         for sp in (self.sp_pad, self.sp_sx, self.sp_sy):
             sp.setEnabled(on_p)
-        # 距离/微调是直接加进行表的，标签跟着一起隐藏
+        # 距离/微调三行（标签+输入框）整行一起显隐；配合上面的
+        # FieldsStayAtSizeHint，其它文本框宽度不随勾选变化
         form = self.layout().itemAt(0).layout()
         for i in (5, 6, 7):          # 离刻度距离 / 左右微调 / 上下微调
-            item = form.itemAt(i, QFormLayout.LabelRole)
-            if item is not None and item.widget() is not None:
-                item.widget().setVisible(on_p)
+            form.setRowVisible(i, on_p)
 
     def set_mt(self, sub_ratio=None, rise=None, drop=None,
                sup_dx=None, sub_dx=None):
@@ -2692,10 +2697,30 @@ class StylePanel(QWidget):
         finally:
             self.setUpdatesEnabled(True)
 
-    def set_legend_labels(self, labels):
-        """把当前图真实的图例文字填进表里，方便整张图一起改"""
-        cur = self.tb_leg.rowCount()
-        if cur == len(labels):
+    def set_legend_labels(self, labels, colors=None):
+        """把当前图真实的图例文字填进表里，方便整张图一起改。
+
+        colors：可选，这张图各条曲线真实用的颜色（按图例顺序）。传了就用来
+        填"颜色"列，不再用静态预设配色；文字行数没变时只同步颜色块。
+        """
+        colors = list(colors or [])
+
+        def _row_color(i):
+            if i < len(colors) and colors[i]:
+                return colors[i]
+            return self._nth_color(i)
+
+        if self.tb_leg.rowCount() == len(labels):
+            # 行数没变：只把颜色块刷成真实曲线色（文字保留用户已改的）
+            self.tb_leg.blockSignals(True)
+            for i in range(len(labels)):
+                it = self.tb_leg.item(i, 2)
+                if it is None:
+                    continue
+                col = _row_color(i)
+                it.setIcon(color_icon(col))
+                it.setData(Qt.UserRole, col)
+            self.tb_leg.blockSignals(False)
             return
         self.tb_leg.blockSignals(True)
         self.tb_leg.setRowCount(0)
@@ -2708,7 +2733,9 @@ class StylePanel(QWidget):
             self.tb_leg.setItem(r, 1, QTableWidgetItem(str(t)))
             it = QTableWidgetItem("")
             it.setFlags(it.flags() & ~Qt.ItemIsEditable)
-            it.setIcon(color_icon(self._nth_color(i)))
+            col = _row_color(i)
+            it.setIcon(color_icon(col))
+            it.setData(Qt.UserRole, col)
             self.tb_leg.setItem(r, 2, it)
         self.tb_leg.blockSignals(False)
         self._queue()
@@ -3434,7 +3461,9 @@ class StylePanel(QWidget):
             return
         if col != 2:
             return
-        cur_color = self._nth_color(row)
+        cell = self.tb_leg.item(row, 2)
+        cur_color = (cell.data(Qt.UserRole) if cell is not None else None) \
+            or self._nth_color(row)
         dlg = ColorPickerDialog(self, cur_color)
         if dlg.exec():
             new_color = dlg.picked
@@ -3449,6 +3478,7 @@ class StylePanel(QWidget):
             it = self.tb_leg.item(row, 2)
             if it:
                 it.setIcon(color_icon(new_color))
+                it.setData(Qt.UserRole, new_color)
             self._refresh_swatch()
             self._queue()
 
@@ -4409,6 +4439,169 @@ class 图内工具条(QWidget):
             pass
 
 
+# ==================================================================
+# 绘图模板：保存对话框 + 文件读写助手
+# ==================================================================
+KIND_NAME = {code: name for name, code in KINDS}
+
+
+def plot_template_dir():
+    folder = os.path.join(BASE_DIR, "绘图模板")
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
+def kind_display(kind):
+    return KIND_NAME.get(kind, kind)
+
+
+def _template_scope(data):
+    scope = data.get("_scope")
+    if scope in ("single", "bundle"):
+        return scope
+    return "bundle"          # 旧格式（无 _scope）按批量处理
+
+
+def _template_kinds(data):
+    if _template_scope(data) == "single":
+        return [data.get("kind")] if data.get("kind") else []
+    bk = data.get("plot_style_by_kind") or {}
+    kinds = [k for k in bk.keys() if isinstance(bk.get(k), dict)]
+    if not kinds and isinstance(data.get("plot_style"), dict):
+        kinds = ["cv_overlay"]
+    return kinds
+
+
+def list_plot_templates():
+    """列出 绘图模板/ 下的模板：文件名、范围、包含的图、修改时间。"""
+    folder = plot_template_dir()
+    items = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return items
+    for fn in names:
+        if not fn.lower().endswith(".json"):
+            continue
+        path = os.path.join(folder, fn)
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        kinds = _template_kinds(data)
+        items.append({
+            "path": path,
+            "name": fn,
+            "scope": _template_scope(data),
+            "kinds": kinds,
+            "kinds_text": "、".join(kind_display(k) for k in kinds) or "（空）",
+            "mtime": time.strftime("%m-%d %H:%M", time.localtime(os.path.getmtime(path))),
+        })
+    return items
+
+
+def merge_plot_template_into(path, styles, scope, kind):
+    """把当前样式合并进已有批量模板（保留它的其它图），single 目标拒绝。
+
+    返回 (ok, message)。
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as exc:
+        return False, f"读取模板失败：{exc}"
+    if _template_scope(data) == "single":
+        return False, "这是单图模板，不能插入；请用「替换选中」，或直接新建批量。"
+    existing = dict(data.get("plot_style_by_kind") or {})
+    if isinstance(data.get("plot_style"), dict) and "cv_overlay" not in existing:
+        existing["cv_overlay"] = data["plot_style"]
+    add = {kind: styles.get(kind, {})} if scope == "single" else dict(styles)
+    existing.update(add)
+    data["_模板类型"] = "绘图模板"
+    data["_scope"] = "bundle"
+    data["_titles_migrated"] = True
+    data["plot_style_by_kind"] = existing
+    data.pop("plot_style", None)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        return False, f"写入模板失败：{exc}"
+    return True, f"已把当前样式插入到：{os.path.basename(path)}"
+
+
+class PlotTemplateSaveDialog(QDialog):
+    """保存绘图模板：显示已有模板，可新建 / 替换选中 / 插入到选中。"""
+
+    def __init__(self, parent, default_name, templates):
+        super().__init__(parent)
+        self.setWindowTitle("保存绘图模板")
+        self.resize(580, 430)
+        self._templates = list(templates)
+        self._selected = None
+        self._action = None
+        lay = QVBoxLayout(self)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("模板名称："))
+        self.ed_name = QLineEdit(default_name)
+        row.addWidget(self.ed_name, 1)
+        lay.addLayout(row)
+        lay.addWidget(QLabel("已有模板（点一行选中，可整体替换或把当前样式插入）："))
+        self.table = QTableWidget(len(self._templates), 4)
+        self.table.setHorizontalHeaderLabels(["模板文件", "范围", "包含的图", "修改时间"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.setColumnWidth(0, 160)
+        self.table.setColumnWidth(1, 52)
+        self.table.setColumnWidth(3, 108)
+        for r, t in enumerate(self._templates):
+            self.table.setItem(r, 0, QTableWidgetItem(t["name"]))
+            self.table.setItem(r, 1, QTableWidgetItem("单图" if t["scope"] == "single" else "批量"))
+            self.table.setItem(r, 2, QTableWidgetItem(t["kinds_text"]))
+            self.table.setItem(r, 3, QTableWidgetItem(t["mtime"]))
+        self.table.cellClicked.connect(self._select_row)
+        lay.addWidget(self.table, 1)
+        hint = QLabel("新建保存：用上面的名字存成新文件；替换选中：整体覆盖选中模板；"
+                      "插入到选中：把当前样式合并进选中的批量模板（不动它其它图）。")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+        btns = QHBoxLayout()
+        self.b_new = QPushButton("新建保存")
+        self.b_new.setObjectName("primary")
+        self.b_replace = QPushButton("替换选中")
+        self.b_insert = QPushButton("插入到选中")
+        self.b_cancel = QPushButton("取消")
+        for b in (self.b_new, self.b_replace, self.b_insert, self.b_cancel):
+            btns.addWidget(b)
+        lay.addLayout(btns)
+        self.b_new.clicked.connect(lambda: self._finish("new"))
+        self.b_replace.clicked.connect(lambda: self._finish("replace"))
+        self.b_insert.clicked.connect(lambda: self._finish("insert"))
+        self.b_cancel.clicked.connect(self.reject)
+
+    def _select_row(self, row, _col=0):
+        if 0 <= row < len(self._templates):
+            self._selected = self._templates[row]["path"]
+            self.ed_name.setText(os.path.splitext(self._templates[row]["name"])[0])
+
+    def _finish(self, action):
+        if action in ("replace", "insert") and not self._selected:
+            QMessageBox.information(self, "请选择", "请先在列表里选中一个已有模板。")
+            return
+        if action == "new" and not self.ed_name.text().strip():
+            QMessageBox.information(self, "请起名", "请填写模板名称。")
+            return
+        self._action = action
+        self.accept()
+
+    def result_action(self):
+        return self._action, self.ed_name.text().strip(), self._selected
+
+
 class PreviewDialog(QDialog):
     """左边看图，右边调样式；改完点「重新绘制」才重画，确认后才真正写文件
 
@@ -4557,16 +4750,18 @@ class PreviewDialog(QDialog):
         b_dir.clicked.connect(self._choose_dir)
         hb_out.addWidget(b_dir)
         hb_out.addSpacing(6)
-        hb_out.addWidget(QLabel("输出到："))
+        # 「输出到：」标签固定宽度，剩余的横向空间留给下面的地址框
+        lab_out_to = QLabel("输出到：")
+        lab_out_to.setFixedWidth(64)
+        hb_out.addWidget(lab_out_to)
         self.lab_dir = QLabel(self.cfg.get("output", {}).get(
             "dir") or eclab.OUTPUT_DIR)
         self.lab_dir.setObjectName("hint")
         self.lab_dir.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.lab_dir.setFixedWidth(360)
-        self.lab_dir.setMinimumWidth(360)
-        # 长路径缩中间（…），宽度不变；完整路径看悬停提示
+        self.lab_dir.setMinimumWidth(180)
+        # 长路径缩中间（…）；完整路径看悬停提示
         self.lab_dir.setToolTip(self.lab_dir.text())
-        hb_out.addWidget(self.lab_dir)
+        hb_out.addWidget(self.lab_dir, stretch=1)
         hb_out.addSpacing(6)
         # 「重新绘制」固定在这行最右端，宽度不变：只有改了参数才点它
         self.b_draw = QPushButton("重新绘制")
@@ -4753,6 +4948,45 @@ class PreviewDialog(QDialog):
             labels = [str(x) for x in items]
         return labels
 
+    def _legend_colors(self, fig):
+        """这张图图例各条曲线真实用的颜色（按图例顺序返回 #rrggbb）。
+
+        表格里"颜色"列直接显示它，避免显示预设配色、图里却是渐变，两边对不上。
+        """
+        try:
+            from matplotlib.colors import to_hex
+        except Exception:
+            return []
+        try:
+            leg = fig.axes[0].get_legend()
+        except Exception:
+            return []
+        handles = getattr(leg, "legend_handles", None)
+        if handles is None:
+            handles = getattr(leg, "legendHandles", None)
+        out = []
+        for handle in handles or []:
+            col = None
+            try:
+                if hasattr(handle, "get_color"):
+                    col = handle.get_color()
+            except Exception:
+                col = None
+            if col is None or (hasattr(col, "__len__") and not isinstance(col, str)):
+                try:
+                    fc = handle.get_facecolor()
+                    col = fc[0] if len(fc) else None
+                except Exception:
+                    col = None
+            if col is None:
+                out.append(None)
+                continue
+            try:
+                out.append(to_hex(col, keep_alpha=False))
+            except Exception:
+                out.append(col if isinstance(col, str) else None)
+        return out
+
     def _show_current(self):
         """把当前这张图摆上画布：缓存有就直接摆，没有才现画补进缓存
 
@@ -4776,7 +5010,8 @@ class PreviewDialog(QDialog):
         self.fig = fig
         self.canvas_box.set_canvas(canvas)
         self.bar.attach(canvas)
-        self.panel.set_legend_labels(self._legend_texts(fig))
+        self.panel.set_legend_labels(self._legend_texts(fig),
+                                          self._legend_colors(fig))
         if self.idx in self._stale:
             self.lab_dirty.setText("参数已改 · 这张还是旧样式，点「重新绘制」同步")
         else:
@@ -4835,7 +5070,8 @@ class PreviewDialog(QDialog):
         # 交给比例画布框：它会按图形真实比例定尺寸，图不会被拉变形
         self.canvas_box.set_canvas(canvas)
         self.bar.attach(canvas)
-        self.panel.set_legend_labels(self._legend_texts(fig))
+        self.panel.set_legend_labels(self._legend_texts(fig),
+                                          self._legend_colors(fig))
         self.panel._timer.stop()  # legend/control population is not a user edit
         self._dirty = False
         self._stale.discard(self.idx)
@@ -4917,35 +5153,76 @@ class PreviewDialog(QDialog):
         QMessageBox.information(self, "已输出", "已保存：\n" + "\n".join(made))
 
     def _save_template(self):
-        """当前参数存为绘图模板：存软件目录固定子文件夹，起名防撞名"""
+        """当前参数存为绘图模板：可选「只存当前图」或「存全部图」，并能在
+        已有模板列表里新建 / 替换选中 / 插入到选中。"""
+        if not self.items:
+            QMessageBox.information(self, "没有图", "当前没有可保存的图。")
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("保存绘图模板")
+        box.setText("保存哪些图的样式？")
+        b_single = box.addButton("只存当前图", QMessageBox.AcceptRole)
+        b_all = box.addButton("存全部图（批量）", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is b_single:
+            scope = "single"
+        elif clicked is b_all:
+            scope = "bundle"
+        else:
+            return
         styles, out = self._sync_cfg()
         out.pop("dir", None)
-        tpl_dir = os.path.join(BASE_DIR, "绘图模板")
-        os.makedirs(tpl_dir, exist_ok=True)
-        name, ok = QInputDialog.getText(
-            self, "当前参数存为绘图模板", "给模板起个名字：",
-            QLineEdit.Normal, time.strftime("绘图模板 %m-%d %H:%M"))
-        if not ok or not name.strip():
+        # 当前预览图的 kind（self.cur 是 StylePanel 的属性，PreviewDialog 没有；
+        # 这里从当前预览项 key 反推 kind）
+        try:
+            kind = eclab.kind_of_key(self.items[self.idx][0])
+        except Exception:
+            kind = "cv_overlay"
+        document = self._template_document(styles, out, scope, kind)
+        dlg = PlotTemplateSaveDialog(
+            self, time.strftime("绘图模板 %m-%d %H:%M"), list_plot_templates())
+        if not dlg.exec():
             return
-        path = os.path.join(tpl_dir, name.strip() + ".json")
-        if os.path.isfile(path):
-            ret = QMessageBox.question(
-                self, "模板已存在",
-                f"「{name.strip()}」已经存在，要替换它吗？",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-            if ret != QMessageBox.Yes:
+        action, name, selected = dlg.result_action()
+        folder = plot_template_dir()
+        if action == "new":
+            if not name:
                 return
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"_模板类型": "绘图模板",
-                       "_说明": "画图外观（每张图各一套）+ 输出格式",
-                       # 标记已按新规则存过（空的 titles 就是真不画标题），
-                       # 加载时不要再当老配置迁移
-                       "_titles_migrated": True,
-                       "plot_style": styles["cv_overlay"],
-                       "plot_style_by_kind": {k: v for k, v in styles.items()
-                                              if k != "cv_overlay"},
-                       "output": out}, f, ensure_ascii=False, indent=2)
-        QMessageBox.information(self, "已保存", f"绘图模板已存到：\n{path}")
+            path = os.path.join(folder, name + ".json")
+            if os.path.isfile(path):
+                ret = QMessageBox.question(
+                    self, "模板已存在", f"「{name}」已经存在，要替换它吗？",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                if ret != QMessageBox.Yes:
+                    return
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(document, f, ensure_ascii=False, indent=2)
+            QMessageBox.information(self, "已保存", f"绘图模板已存到：\n{path}")
+        elif action == "replace":
+            if not selected:
+                return
+            with open(selected, "w", encoding="utf-8") as f:
+                json.dump(document, f, ensure_ascii=False, indent=2)
+            QMessageBox.information(self, "已替换", f"已覆盖：\n{selected}")
+        elif action == "insert":
+            if not selected:
+                return
+            ok, msg = merge_plot_template_into(selected, styles, scope, kind)
+            if ok:
+                QMessageBox.information(self, "已插入", msg)
+            else:
+                QMessageBox.warning(self, "未能插入", msg)
+
+    def _template_document(self, styles, out, scope, kind):
+        if scope == "single":
+            return {"_模板类型": "绘图模板", "_scope": "single", "kind": kind,
+                    "_说明": "单张图的绘图样式", "_titles_migrated": True,
+                    "plot_style": styles.get(kind, {}), "output": out}
+        return {"_模板类型": "绘图模板", "_scope": "bundle",
+                "_说明": "多张图的绘图样式（可只含部分图）", "_titles_migrated": True,
+                "plot_style_by_kind": dict(styles), "output": out}
 
     def final_cfg(self):
         self._sync_cfg()
@@ -4985,15 +5262,11 @@ class MainWindow(QMainWindow):
         self._load_config_file(CONFIG_PATH, silent=True)
         self._startup = False
         self.dir_list.clear()        # 每次打开都从空的开始，列表里显示=有文件
-        from ec_workspaces import WorkspaceHost
-        self.workspaces = WorkspaceHost(self, self.takeCentralWidget())
-        self.setCentralWidget(self.workspaces)
         if self._dir_history:
             self._append("上次用过的文件夹路径已记住，点「添加…」会直接打开")
         QTimer(self, interval=150, timeout=self._drain_log).start()
 
     def _build_ui(self):
-        self._build_menu()
         tb = QToolBar("主工具栏")
         self._main_toolbar = tb
         tb.setMovable(False)
@@ -5028,6 +5301,33 @@ class MainWindow(QMainWindow):
         self.lab_out_bar.setObjectName("hint")
         self.lab_out_bar.setToolTip("输出文件夹（点「输出位置」可改）")
         tb.addWidget(self.lab_out_bar)
+        # 外观下拉：菜单栏已移除，浅色/深色模式改放在工具栏
+        self.appearance_button = QToolButton()
+        self.appearance_button.setText("外观")
+        self.appearance_button.setToolTip("切换浅色 / 深色外观")
+        self.appearance_button.setPopupMode(QToolButton.InstantPopup)
+        appearance_menu = QMenu(self.appearance_button)
+        appearance_menu.addAction("浅色模式", lambda: self.set_theme("classic"))
+        appearance_menu.addAction("深色模式", lambda: self.set_theme("dark"))
+        self.appearance_button.setMenu(appearance_menu)
+        tb.addWidget(self.appearance_button)
+        # 「更多」下拉：接管原菜单栏里没有独立按钮的功能，避免菜单移除后入口丢失
+        self.more_button = QToolButton()
+        self.more_button.setText("更多")
+        self.more_button.setToolTip("数据处理模板、错误日志、使用说明等")
+        self.more_button.setPopupMode(QToolButton.InstantPopup)
+        more_menu = QMenu(self.more_button)
+        more_menu.addAction("加载数据处理模板…", lambda: self.load_template("数据处理模板"))
+        more_menu.addAction("保存数据处理模板…", lambda: self.save_template("数据处理模板"))
+        more_menu.addSeparator()
+        more_menu.addAction("查看错误日志", self._view_error_log)
+        more_menu.addAction("使用说明", self.show_help)
+        more_menu.addAction("科研绘图设计学习报告", lambda: self._open_project_doc("科研绘图项目设计学习报告-20261024.md"))
+        more_menu.addAction("关于 ec-lab", lambda: QMessageBox.information(
+            self, "关于 ec-lab", "ec-lab · 数据处理与一键绘图\n\n"
+            "保留原 Excel 数据处理格式；基于 PySide6 与 Matplotlib。"))
+        self.more_button.setMenu(more_menu)
+        tb.addWidget(self.more_button)
         self.addToolBar(tb)
 
         root = QWidget()
@@ -5439,53 +5739,6 @@ class MainWindow(QMainWindow):
         self._fold_body["out"] = gb
         return gb
 
-    def _build_menu(self):
-        mb = self.menuBar()
-        self._workspace_actions = []
-        def action(menu, title, callback):
-            item = menu.addAction(title, callback)
-            self._workspace_actions.append(item)
-            return item
-        m = mb.addMenu("文件")
-        action(m, "添加文件夹…", lambda: self.workspaces.process_action("add_folder"))
-        action(m, "输出位置…", self.choose_out_dir)
-        m.addAction("结果文件夹", self.open_out_dir)
-        m.addSeparator()
-        m.addAction("退出", self.close)
-        m = mb.addMenu("处理")
-        action(m, "加载数据处理模板…", lambda: self.workspaces.process_action("load_processing_template"))
-        action(m, "保存数据处理模板…", lambda: self.workspaces.process_action("save_processing_template"))
-        action(m, "修改数据处理模板", lambda: self.workspaces.process_action("edit_processing_template"))
-        m = mb.addMenu("绘图")
-        templates = m.addMenu("绘图模板")
-        action(templates, "加载模板…", lambda: self.workspaces.plot_action("load_style_template"))
-        action(templates, "编辑模板…", lambda: self.workspaces.plot_action("edit_style_template"))
-        action(m, "绘图设置", lambda: self.workspaces.plot_action("show_plot_settings"))
-        action(m, "调色盘…", lambda: self.workspaces.plot_action("choose_palette"))
-        m = mb.addMenu("外观")
-        m.addAction("浅色模式", lambda: self.set_theme("classic"))
-        m.addAction("深色模式", lambda: self.set_theme("dark"))
-        m = mb.addMenu("帮助")
-        m.addAction("使用说明", self.show_help)
-        m.addAction("科研绘图设计学习报告", lambda: self._open_project_doc("科研绘图项目设计学习报告-20261024.md"))
-        advanced = m.addMenu("高级电化学工具")
-        action(advanced, "打开高级工作区", lambda: self.workspaces.show_advanced())
-        action(advanced, "原绘图模板与详细设置…", lambda: self._advanced_action(self.open_plot_settings))
-        action(advanced, "原数据处理模板加载…", lambda: self._advanced_action(lambda: self.load_template("数据处理模板")))
-        action(advanced, "原数据处理模板保存…", lambda: self._advanced_action(lambda: self.save_template("数据处理模板")))
-        m.addAction("查看错误日志", self._view_error_log)
-        m.addAction("关于 ec-lab", lambda: QMessageBox.information(
-            self, "关于 ec-lab", "ec-lab · 数据处理与一键绘图\n\n"
-            "保留原 Excel 数据处理格式；基于 PySide6 与 Matplotlib。\n"
-            "科研绘图设计参考及开源来源见帮助中的学习报告。"))
-
-    def _advanced_action(self, callback):
-        if self._running or (self.workspaces and self.workspaces.is_busy()):
-            return
-        if self.workspaces:
-            self.workspaces.show_advanced()
-        callback()
-
     def _open_project_doc(self, filename):
         path = os.path.join(BASE_DIR, "docs", filename)
         try:
@@ -5495,76 +5748,23 @@ class MainWindow(QMainWindow):
 
     def show_help(self):
         QMessageBox.information(self, "使用说明",
+            "界面\n"
+            "· 打开软件即是经典单界面：左边数据文件夹与处理参数，右边文件表与运行日志。\n"
+            "· 顶部工具栏：「添加文件夹」「开始处理」「电导率处理」「Excel 一键绘图」"
+            "以及「预览图形 / 直接输出 / 绘图模板 / 输出位置 / 打开结果」。\n"
+            "· 「外观」下拉可切浅色 / 深色模式（只改软件外观，论文画布保持白底）。\n\n"
             "数据处理\n"
-            "① 选择处理类型，添加文件或文件夹。左侧保留本批文件清单。\n"
-            "② 核对质量、体积和采样方式；需要时展开参数。\n"
-            "③ 开始处理生成 Excel；完成后选择结果，进入一键绘图。\n\n"
+            "① 添加文件夹后自动扫描；在文件表里勾选参与处理的文件，双击「质量 mg」可改。\n"
+            "② 点「开始处理」打开数据处理窗口，选择处理类型（CV+GCD / CP循环 / CV循环 / "
+            "CDI / 电容贡献率），核对参数后生成 Excel。\n"
+            "③ 处理窗口里的「比电容 / EIS 计算…」会用你在窗口里刚添加的文件继续做比电容 / EIS 计算。\n\n"
             "一键绘图\n"
             "① 打开处理后的 Excel，自动列出常用图，也可以按列绘图。\n"
             "② 在上方“当前预览”切图，展开“绘图设置”修改坐标轴、图例、颜色、字体和尺寸。\n"
-            "③ 点击输出，勾选图片、修改名称、格式和保存位置；至少选择一张。\n"
-            "④ 完成后可以选择是否打开保存位置。\n\n"
+            "③ 点击输出，勾选图片、修改名称、格式和保存位置；至少选择一张。\n\n"
             "模板与文件\n"
-            "· 处理菜单管理数据处理参数；绘图模板保存外观，绘图配方记录本次数据与设置。\n"
-            "· CDI 默认 50 mL；质量自动建议可改，混合质量分批处理；原始数据只读。\n"
-            "· 切换工作区保留当前内容。浅色/深色只改变软件外观，论文画布保持白底。\n"
-            "· 比电容、EIS、原详细预览仍在“帮助 → 高级电化学工具”。")
-
-    def _show_legacy_help(self):
-        QMessageBox.information(
-            self, "使用说明",
-            "① 添加文件夹 → ② 扫描并勾选文件（质量双击可改）\n"
-            "③ 开始处理：算数并保存数据，算完提示完成\n"
-            "④ 点「预览图形」改绘图参数；满意后点「直接输出」出图\n"
-            "   （输出完可选择是否打开结果文件夹）\n\n"
-            "处理参数怎么用：\n"
-            "· 取 segment 默认就是 2、3，不用动；只有确实要改时，"
-            "才勾「自定义要取的 segment」。\n"
-            "· 勾「展开详细参数」后，按 CV / GCD / 循环 / EIS / 输出"
-            "五块分开设置，各块点标题左侧方框可折叠。\n"
-            "· CV 与 GCD 可以各写各的 segment 和循环起始圈；"
-            "不单独设就都用上面那个共用值。\n"
-            "· 输出文件夹在「输出参数」里改，也可以用「更改文件夹…」。\n\n"
-            "文件表：\n"
-            "· 「处理 ✓」列的方框 = 该文件要不要参与处理；点表头可全选。\n"
-            "· 点行选中（可 Ctrl/Shift 多选）后「删除选中行」删掉。\n"
-            "· 右上角实时显示「共 N 个文件，已勾选 M 个」。\n\n"
-            "要点：\n"
-            "· 样式按图分开：CV 叠加 / CV 比电容 / GCD 曲线 / GCD 比电容 /"
-            " EIS / 循环稳定性；预览切图时自动切到对应样式。\n"
-            "· 类别轴：在「刻度/轴」页签最上面的方框里勾选。\n"
-            "· 轴标题：在「轴标题」页签里，X 轴和 Y 轴各改各的。\n"
-            "  文字、字号、颜色、离刻度的距离、上下左右微调、粗体斜体、\n"
-            "  上下标大小和偏移，全都能单独调；上面白框是实时预览。\n"
-            "  上下标写法：上标 x^{-1}、下标 F_{x}，多个字符用大括号。\n"
-            "  上标/下标除了大小和上下，还能单独往左右挪。\n"
-            "· 数据点逐个配色：在「数据点」页签最下面，每个点一行，\n"
-            "  三个色块分别是填充色 / 竖线色 / 边线色，留空＝跟随该曲线。\n"
-            "  点「用选中的颜色组填满」把当前配色套到每个点上；颜色比数据点\n"
-            "  少时会自动循环。点「颜色组…」看颜色块挑一组，还能复制后改。\n"
-            "· EIS 页签只在调 EIS 图时出现，其它图看不到它。\n"
-            "· 「图片背景透明」勾上后，导出的 PNG 背景是透明的\n"
-            "  （jpg 本身不支持透明，会自动存成不透明）。\n"
-            "· 图例文字：在「图例」页签表格里整张一起改；\n"
-            "  上标写 ^{-1}、下标写 _{x}（例：50 mV s^{-1}、Fe_{3}O_{4}）。\n"
-            "  点文字那列就能改，改完回车生效，还能再点进去接着改。\n"
-            "· 坐标轴范围：在「刻度/轴」页签底部四个框里填数值就锁死，\n"
-            "  以后改配色、字号都不会被弹回去；留空＝自动。\n"
-            "  或者先用图下工具条的「框选放大」调好，再点\n"
-            "  「把当前范围填到设置里」。\n\n"
-            "颜色怎么挑：\n"
-            "· 选单个颜色：所有色块按钮点一下都弹调色盘，\n"
-            "  里面分「标准色 / RGB / 滑块」三页，随便挑。\n"
-            "· 选一整套：调色盘里的「配色方案」页，点一下就用；\n"
-            "  自己存的方案可以在那儿改名、删除、整套用上。\n"
-            "· 保存配色：只问名字，固定存在\n"
-            "  %s\n"
-            "  同名不会覆盖，自动加序号。\n"
-            "· 用过的颜色和配色方案会自动记住，下次打开就在\n"
-            "  调色盘的「我用过」和「配色方案」页里。\n\n"
-            "· 直接输出：按当前参数把全部图片输出到目标文件夹，"
-            "输出后自动打开结果文件夹。"
-            % ecpal.PALETTE_DIR)
+            "· 绘图模板保存外观，绘图配方记录本次数据与设置。\n"
+            "· CDI 默认 50 mL；质量自动建议可改，混合质量分批处理；原始数据只读。")
 
     def set_theme(self, name):
         self.theme = name
@@ -5572,7 +5772,20 @@ class MainWindow(QMainWindow):
 
     # ---------------- 日志与后台 ----------------
     def _drain_log(self):
-        buf, done, preview, open_dir = [], False, False, False
+        # Y9: the 150 ms timer may fire again before a nested modal dialog
+        # (preview / output selection) launched by a previous drain has
+        # returned. Guard against re-entrancy so we never run two drains at
+        # once, which could double-trigger modal boxes.
+        if getattr(self, "_draining", False):
+            return
+        self._draining = True
+        try:
+            self._drain_log_inner()
+        finally:
+            self._draining = False
+
+    def _drain_log_inner(self):
+        buf, done = [], False
         cached_preview = False
         output_ready = output_finished = None
         warn_anom = 0
@@ -5602,16 +5815,11 @@ class MainWindow(QMainWindow):
                     continue
                 if s == "<<DONE>>":
                     done = True
-                elif s == "<<PREVIEW>>":
-                    preview = True
-                elif s == "<<OPEN_DIR>>":
-                    open_dir = True
-                elif s.startswith("<<WARN_ANOM:"):
-                    try:
-                        warn_anom = int(s[13:-2])
-                    except Exception:
-                        warn_anom = 0
                 else:
+                    # G3: the <<PREVIEW>> / <<OPEN_DIR>> / <<WARN_ANOM:>> sentinels
+                    # below are dead — nothing in the current code emits them
+                    # (only the archived _bak copy ever did). warn_anom now comes
+                    # solely from the job_result payload above.
                     buf.append(s)
         except queue.Empty:
             pass
@@ -5619,18 +5827,10 @@ class MainWindow(QMainWindow):
             self.log.append("".join(buf).rstrip())
         if warn_anom:
             self._warn_anomaly()
-        if preview:
-            self._open_preview()
-        if open_dir:
-            try:
-                os.startfile(self.output_cfg.get("dir") or eclab.OUTPUT_DIR)
-            except Exception:
-                pass
         if done:
             self._running = False
             self.centralWidget().setEnabled(True)
             self._main_toolbar.setEnabled(True)
-            self.menuBar().setEnabled(True)
             self.statusBar().showMessage("处理失败，请查看日志" if self._job_error else "完成")
             if self._job_error:
                 QMessageBox.warning(self, "处理未完成", self._job_error)
@@ -5745,13 +5945,12 @@ class MainWindow(QMainWindow):
 
     def _start_job(self, work, message):
         """One computation/export at a time; all widget access stays on the UI thread."""
-        if self._running or (self.workspaces and self.workspaces.is_busy()):
+        if self._running:
             return
         self._running = True
         self._job_error = None
         self.centralWidget().setEnabled(False)
         self._main_toolbar.setEnabled(False)
-        self.menuBar().setEnabled(False)
         self.statusBar().showMessage(message)
         def worker():
             old_stdout, old_stderr = sys.stdout, sys.stderr
@@ -5772,17 +5971,11 @@ class MainWindow(QMainWindow):
     def open_plot_studio(self):
         if self._running:
             return
-        if self.workspaces:
-            self.workspaces.show_plot(self._last_workbook)
-            return
         from ec_plot_studio import PlotStudio
         PlotStudio(self, initial_path=self._last_workbook).exec()
 
     def open_conductivity(self):
         if self._running:
-            return
-        if self.workspaces:
-            self.workspaces.show_data("cdi")
             return
         from ec_legacy_ui import LegacyExcelDialog
         dialog = LegacyExcelDialog(self, mode="cdi", output_dir=self.output_cfg.get("dir"))
@@ -5924,8 +6117,6 @@ class MainWindow(QMainWindow):
             self.lab_out_bar.setText("输出：" + self.output_cfg["dir"])
         for k, c in self.fmt_boxes.items():
             c.setChecked(k in self.output_cfg["formats"])
-        if self.workspaces:
-            self.workspaces.set_output_dir(self.output_cfg["dir"])
 
     # ---------------- 事件 ----------------
     def _circuit_code(self):
@@ -6010,12 +6201,10 @@ class MainWindow(QMainWindow):
             self.lab_out.setText(d)
             if hasattr(self, "lab_out_bar"):
                 self.lab_out_bar.setText("输出：" + d)
-            if self.workspaces:
-                self.workspaces.set_output_dir(d)
 
     def open_out_dir(self):
         try:
-            folder = self.workspaces.result_directory() if self.workspaces else self.output_cfg.get("dir")
+            folder = self.output_cfg.get("dir")
             os.startfile(folder or eclab.OUTPUT_DIR)
         except Exception as exc:
             QMessageBox.warning(self, "打不开", str(exc))
@@ -6057,6 +6246,14 @@ class MainWindow(QMainWindow):
                 else:
                     mg_v = self.mass_override.get(
                         tag, self.mass_override.get(key))
+                    # Y11: a template/override value may be a non-numeric
+                    # string; coerce before the f"{mg_v:g}" format so a bad
+                    # entry degrades to "待填写" instead of crashing the scan.
+                    if mg_v is not None:
+                        try:
+                            mg_v = float(mg_v)
+                        except (TypeError, ValueError):
+                            mg_v = None
                     if mg_v is not None:
                         mg, src = f"{mg_v:g}", "手动/模板"
                     else:
@@ -6313,32 +6510,77 @@ class MainWindow(QMainWindow):
             for k, c in self.fmt_boxes.items():
                 c.setChecked(k in self.output_cfg["formats"])
 
+    def _checked_files(self):
+        """主窗口文件表里勾选的文件路径，以及一致的批质量（不一致/未填返回 0）。"""
+        paths = []
+        masses = set()
+        for r in range(self.table.rowCount()):
+            if self.table.item(r, 0).checkState() != Qt.Checked:
+                continue
+            path = self.table.item(r, 2).data(Qt.UserRole)
+            if path:
+                paths.append(path)
+            if self.table.item(r, 1).text() != "EIS":
+                try:
+                    masses.add(float(self.table.item(r, 3).text()))
+                except (TypeError, ValueError):
+                    pass
+        mass = next(iter(masses)) if len(masses) == 1 else 0
+        return paths, mass
+
     def run(self):
         if self._running:
             return
+        # 经典单界面：用主窗口勾选的文件/质量打开数据处理对话框。
+        paths, mass = self._checked_files()
         from ec_legacy_ui import LegacyExcelDialog
-        paths, masses = [], set()
-        for row in range(self.table.rowCount()):
-            if self.table.item(row, 0).checkState() != Qt.Checked:
-                continue
-            if self.table.item(row, 1).text() == "EIS":
-                continue
-            paths.append(self.table.item(row, 2).data(Qt.UserRole))
-            try:
-                masses.add(float(self.table.item(row, 3).text()))
-            except ValueError:
-                pass
-        dialog = LegacyExcelDialog(self, paths=paths, mass_mg=next(iter(masses)) if len(masses)==1 else None,
+        dialog = LegacyExcelDialog(self, paths=paths,
+                                   mass_mg=mass if mass > 0 else None,
                                    output_dir=self.output_cfg.get("dir"))
-        if len(masses)>1:
-            dialog.log.appendPlainText("所选文件有多个质量，请按同一样品、同一质量分批生成原样 Excel，并核对本次质量。")
-            dialog.files.clear()
-        dialog.exec()
+        accepted = dialog.exec()
         if dialog.result_files:
             self._last_workbook = dialog.result_files[0]
-            self._append("原样 Excel 已生成：\n" + "\n".join(dialog.result_files))
-        if dialog.want_analysis:
-            self.run_analysis()
+        if accepted and dialog.want_analysis:
+            # Y4 修复：用对话框里刚处理的文件做比电容/EIS，而不是读可能为空的主窗口表。
+            self._run_analysis_for_files(dialog._paths(), dialog.fields["mass_mg"].value())
+
+    def _run_analysis_for_files(self, paths, mass_mg):
+        """对给定的文件列表做比电容 / EIS 计算（供数据处理对话框的『比电容/EIS 计算』使用）。"""
+        if self._running:
+            return
+        txt = [os.path.abspath(p) for p in paths if str(p).lower().endswith(".txt")]
+        if not txt:
+            QMessageBox.information(self, "无法计算",
+                                    "所选文件里没有 TXT，无法做比电容 / EIS 计算。\n"
+                                    "请添加 CV/GCD/EIS 的 TXT 原始数据。")
+            return
+        dirs = list(dict.fromkeys(os.path.dirname(p) for p in txt))
+        cfg = self.current_cfg(include_files=False)
+        cfg["data_dir"] = dirs
+        cfg["include_files"] = txt
+        try:
+            mg = float(mass_mg)
+        except (TypeError, ValueError):
+            mg = 0.0
+        if mg > 0:
+            table = {}
+            for p in txt:
+                tag = eclab.unique_tag(p, dirs)
+                table[tag] = mg
+                table[os.path.splitext(os.path.basename(p))[0]] = mg
+            cfg["mass_mg"] = table
+        else:
+            cfg["mass_mg"] = {}
+        def work():
+            signature = calculation_signature(cfg)
+            data = eclab.prepare(cfg)
+            workbook = eclab.export_tables(data, cfg)
+            if not workbook:
+                raise ValueError("没有可导出的数据。请检查样品质量、文件勾选和日志中的跳过原因。")
+            print("\n[处理完成] Excel 已保存：" + str(workbook))
+            print("点击「Excel 一键绘图」可选科研模板出图；也可以打开「预览图形」调整详细样式。")
+            return {"data": data, "signature": signature, "workbook": str(workbook)}
+        self._start_job(work, "正在处理数据并保存 Excel…")
 
     def run_analysis(self):
         if self._running:
@@ -6390,10 +6632,12 @@ class MainWindow(QMainWindow):
     # ---------------- 模板 ----------------
     def save_template(self, kind):
         if kind == "绘图模板":
-            data = {"_模板类型": "绘图模板",
-                    "_说明": "画图外观（每张图各一套）+ 输出格式",
-                    "plot_style": self.style_cfg,
-                    "plot_style_by_kind": self.style_by_kind,
+            all_kinds = {"cv_overlay": self.style_cfg}
+            all_kinds.update(self.style_by_kind)
+            data = {"_模板类型": "绘图模板", "_scope": "bundle",
+                    "_说明": "多张图的绘图样式（可只含部分图）",
+                    "_titles_migrated": True,
+                    "plot_style_by_kind": all_kinds,
                     "output": {k: v for k, v in self.output_cfg.items()
                                if k != "dir"}}
             default = os.path.join(BASE_DIR, "绘图模板.json")
@@ -6430,22 +6674,48 @@ class MainWindow(QMainWindow):
                     f"这是「{t}」，不能当「{kind}」加载。")
                 return
             if kind == "绘图模板":
-                merged = json.loads(json.dumps(eclab.DEFAULT_STYLE))
-                merged = eclab.deep_merge(merged, data.get("plot_style", {}))
-                self.style_cfg = merged
-                self.style_by_kind = dict(data.get("plot_style_by_kind") or {})
-                out = data.get("output") or {}
-                self.output_cfg["formats"] = out.get(
-                    "formats", self.output_cfg["formats"])
-                self.output_cfg["dpi"] = out.get("dpi",
-                                                 self.output_cfg["dpi"])
-                for k, c in self.fmt_boxes.items():
-                    c.setChecked(k in self.output_cfg["formats"])
+                self._apply_plot_template(data)
             else:
                 self._apply_cfg(data)
             self._append(f"{kind}已加载：{path}")
         except Exception as exc:
             QMessageBox.warning(self, "加载失败", str(exc))
+
+    def _apply_plot_template(self, data):
+        """加载绘图模板：只替换文件中出现的图，没出现的保持当前/默认。
+
+        支持三种格式：
+          · single  ：{"_scope":"single","kind":"cv_overlay","plot_style":{...}}
+          · bundle  ：{"_scope":"bundle","plot_style_by_kind":{"cv_overlay":{...},...}}
+          · 旧格式   ：没有 _scope，plot_style(=cv_overlay) + plot_style_by_kind
+        这样加载单图模板只动那一张；把单图模板加载后另存为批量，自然就合并进去。
+        """
+        by_kind = {}
+        if data.get("_scope") == "single":
+            k = data.get("kind")
+            if k and isinstance(data.get("plot_style"), dict):
+                by_kind[k] = data["plot_style"]
+        else:
+            bk = data.get("plot_style_by_kind")
+            if isinstance(bk, dict):
+                by_kind.update({k: v for k, v in bk.items() if isinstance(v, dict)})
+            if isinstance(data.get("plot_style"), dict):
+                by_kind.setdefault("cv_overlay", data["plot_style"])
+        if not by_kind:
+            QMessageBox.information(self, "模板为空", "这个绘图模板里没有可用的图样式。")
+            return
+        for k, v in by_kind.items():
+            merged = json.loads(json.dumps(eclab.DEFAULT_STYLE))
+            merged = eclab.deep_merge(merged, v or {})
+            if k == "cv_overlay":
+                self.style_cfg = merged
+            else:
+                self.style_by_kind[k] = merged
+        out = data.get("output") or {}
+        self.output_cfg["formats"] = out.get("formats", self.output_cfg["formats"])
+        self.output_cfg["dpi"] = out.get("dpi", self.output_cfg["dpi"])
+        for k, c in self.fmt_boxes.items():
+            c.setChecked(k in self.output_cfg["formats"])
 
     def _first_run_bootstrap(self):
         """首次运行：把打包的默认 config.json 复制到 exe 旁边"""
@@ -6485,7 +6755,7 @@ class MainWindow(QMainWindow):
         self.log.append(s.rstrip())
 
     def closeEvent(self, event):
-        if self._running or (self.workspaces and self.workspaces.is_busy()):
+        if self._running:
             self.statusBar().showMessage("正在处理，请等待完成后再关闭，以免中断文件写入。")
             event.ignore()
             return

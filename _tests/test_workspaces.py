@@ -1,4 +1,9 @@
-"""Integration contracts for the two persistent desktop workspaces."""
+"""Integration contracts for the two persistent desktop workspaces.
+
+DEPRECATED: 界面已回滚为经典单界面（WorkspaceHost 页签被移除），本套
+测试针对的 WorkspaceHost 不再存在，故整体跳过。ec_workspaces.py 保留在
+仓库里但运行期不再被 import。
+"""
 import os
 from pathlib import Path
 import tempfile
@@ -12,6 +17,7 @@ from PySide6.QtWidgets import QApplication
 import ec_gui
 
 
+@unittest.skip("界面回滚：WorkspaceHost 已移除，回到经典单界面")
 class WorkspaceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -52,14 +58,18 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIsNotNone(page)
         self.assertFalse(page.isWindow())
         self.host.show_data()
-        self.host.data.files.addItem("example(25mg).xlsx")
-        with patch.object(page, "load_path") as load:
+        self.host.data._add_file("example(25mg).xlsx")
+        # load_path 会真实地更新 book；用 side_effect 模拟，避免无操作 mock 把
+        # 结果就绪后的同路径再打开误判成重复加载。
+        def remember(path):
+            page.book = SimpleNamespace(path=path)
+        with patch.object(page, "load_path", side_effect=remember) as load:
             self.host.data.resultsReady.emit(["new-result.xlsx"], "new-results")
             self.host.data.plotRequested.emit("new-result.xlsx")
             load.assert_called_once_with("new-result.xlsx")
         self.assertEqual(self.host.tabs.currentIndex(), 1)
         self.assertIs(self.host.plot, page)
-        self.assertEqual(self.host.data.files.count(), 1)
+        self.assertEqual(len(self.host.data._paths()), 1)
         self.assertEqual(self.window._last_workbook, "new-result.xlsx")
         self.assertEqual(self.host.result_directory(), "new-results")
         page.book = SimpleNamespace(path="new-result.xlsx")

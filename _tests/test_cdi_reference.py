@@ -46,7 +46,7 @@ class CDIReferenceTests(unittest.TestCase):
     def test_auto_detects_measured_five_and_ten_second_sampling(self):
         for step in (5, 10):
             with self.subTest(step=step):
-                wb = self.workbook(self.csv(range(0, 120, step)), cycle_minutes=1)
+                wb = self.workbook(self.csv(range(0, 120, step)), ads_minutes=0.5, des_minutes=0.5)
                 self.assertEqual(wb["电导率"].max_row, 60 // step + 1)
                 self.assertEqual(wb["电导率"].max_column, 3)
                 self.assertEqual(wb["原始数据"]["A3"].value, step)
@@ -54,30 +54,41 @@ class CDIReferenceTests(unittest.TestCase):
 
     def test_endpoint_stays_raw_and_partial_cycle_is_not_discarded(self):
         source = self.csv(range(0, 125, 5))
-        wb = self.workbook(source, cycle_minutes=1)
+        wb = self.workbook(source, ads_minutes=0.5, des_minutes=0.5)
         self.assertEqual(wb["原始数据"].max_row, 26)
         self.assertEqual(wb["原始数据"]["A26"].value, 120)
         self.assertEqual(wb["电导率"].max_column, 3)
         self.assertEqual(wb["吸附最大值"].max_column, 2)
-        all_points = self.workbook(source, cycle_minutes=1, cdi_tail="include")
+        all_points = self.workbook(source, ads_minutes=0.5, des_minutes=0.5, cdi_tail="include")
         self.assertEqual(all_points["电导率"].max_column, 4)
-        partial = self.workbook(self.csv(range(0, 130, 5)), cycle_minutes=1)
+        partial = self.workbook(self.csv(range(0, 130, 5)), ads_minutes=0.5, des_minutes=0.5)
         self.assertEqual(partial["电导率"].max_column, 4)
         self.assertEqual(partial["电导率"]["D3"].value, 75)
         self.assertIn(partial["吸附容量"]["D4"].value, (None, ""))
-        complete = self.workbook(self.inputs / "conductivity.csv", cycle_minutes=1, cdi_tail="complete")
+        complete = self.workbook(self.inputs / "conductivity.csv", ads_minutes=0.5, des_minutes=0.5, cdi_tail="complete")
         self.assertEqual(complete["电导率"].max_column, 3)
         self.assertEqual(complete["原始数据"].max_row, 27)
 
+    def test_unequal_adsorption_and_desorption_durations_sum_to_total(self):
+        # 吸附 40 min + 脱附 20 min = 总 60 min；5 s 步长 -> 每圈 12 点。
+        # 计算只用总时长对称切圈；吸附容量仍对整圈所有点写公式（不改吸附段切分）。
+        source = self.csv(range(0, 65, 5))  # 13 点，末点为整圈结束点
+        wb = self.workbook(source, mass_mg=24, ads_minutes=2 / 3, des_minutes=1 / 3)
+        self.assertEqual(wb["电导率"].max_row, 12 + 1)
+        self.assertEqual(wb["电导率"].max_column, 2)
+        self.assertIsNotNone(wb["吸附容量"]["B13"].value)   # 整圈最后一行仍计算吸附容量
+        self.assertEqual(wb["原始数据"]["A2"].value, 0)
+        self.assertEqual(wb["原始数据"]["A14"].value, 60)
+
     def test_missing_or_irregular_time_requires_explicit_resolution(self):
         with self.assertRaisesRegex(ValueError, "手动填写"):
-            self.workbook(self.csv(["", "", ""]), cycle_minutes=1)
-        manual = self.workbook(self.inputs / "conductivity.csv", cycle_minutes=1, cdi_step=10)
+            self.workbook(self.csv(["", "", ""]), ads_minutes=0.5, des_minutes=0.5)
+        manual = self.workbook(self.inputs / "conductivity.csv", ads_minutes=0.5, des_minutes=0.5, cdi_step=10)
         self.assertEqual(manual["原始数据"]["A4"].value, 20)
         with self.assertRaisesRegex(ValueError, "时间间隔与设定不一致"):
-            self.workbook(self.csv([0, 5, 10, 25, 30]), cycle_minutes=1)
+            self.workbook(self.csv([0, 5, 10, 25, 30]), ads_minutes=0.5, des_minutes=0.5)
         with self.assertRaisesRegex(ValueError, "时间间隔与设定不一致"):
-            self.workbook(self.csv([0, 5, 10, 15]), cycle_minutes=1, cdi_step=10)
+            self.workbook(self.csv([0, 5, 10, 15]), ads_minutes=0.5, des_minutes=0.5, cdi_step=10)
 
     def test_mass_is_only_an_explicit_unambiguous_suggestion(self):
         self.assertEqual(suggest_cdi_mass(REFERENCE_PAIRS[0][0])["mass_mg"], 24)
@@ -88,13 +99,13 @@ class CDIReferenceTests(unittest.TestCase):
         source = self.csv(range(0, 60, 5))
         named = source.with_name("sample(25mg)-200mg.csv")
         source.rename(named)
-        wb = self.workbook(named, mass_mg=23, cycle_minutes=1)
+        wb = self.workbook(named, mass_mg=23, ads_minutes=0.5, des_minutes=0.5)
         self.assertEqual(wb["原始数据"]["D1"].value, 23)
 
     def test_resolved_parameters_and_sources_are_recorded(self):
         source = self.csv(range(0, 125, 5))
         digest = hashlib.sha256(source.read_bytes()).hexdigest()
-        result = run_legacy("cdi", [source], self.outputs, {"cycle_minutes": 1}, lambda _: None)
+        result = run_legacy("cdi", [source], self.outputs, {"ads_minutes": 0.5, "des_minutes": 0.5}, lambda _: None)
         manifest = json.loads((Path(result["folder"]) / "处理说明.json").read_text(encoding="utf-8"))
         actual = manifest["resolved_parameters"][0]
         self.assertEqual(actual["sampling_seconds"], 5)

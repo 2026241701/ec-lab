@@ -1142,6 +1142,70 @@ def _limit(v):
         return None
 
 
+def _tick_niceness(step):
+    """步长"好不好看"：到 1/2/2.5/5/10 这些整齐数的距离，越小越整齐"""
+    if not np.isfinite(step) or step <= 0:
+        return float("inf")
+    mant = step / (10 ** np.floor(np.log10(step)))
+    return min(abs(mant - g) for g in (1.0, 2.0, 2.5, 5.0, 10.0))
+
+
+def nice_ticks(lo, hi, min_intervals=4, max_intervals=8):
+    """给定坐标范围，返回"端点必定落在刻度上"的一组整齐刻度。
+
+    按范围长度选整齐步长（1/2/2.5/5 × 10ⁿ 系列），步长由区间数
+    span/N 反推，所以首尾两个刻度恰好等于 lo/hi —— 不会再出现
+    范围 -0.8~0.8 却只画到 -0.75、端点 0.8 缺失的情况。
+    返回 None 表示范围非法（交给 matplotlib 自动处理）。
+    """
+    lo, hi = float(lo), float(hi)
+    span = hi - lo
+    if not np.isfinite(span) or span <= 0:
+        return None
+    best = None
+    for n in range(max(1, min_intervals), max_intervals + 1):
+        step = span / n
+        key = (_tick_niceness(step), abs(n - 6))   # 先整齐，再尽量 6 段
+        if best is None or key < best[0]:
+            best = (key, n, step)
+    if best is None:
+        return None
+    _, n, step = best
+    # 按步长量级取小数位，去掉 0.30000000000000004 这类浮点噪声
+    dec = max(0, -int(np.floor(np.log10(step))) + 2) if step > 0 else 6
+    ticks = [round(lo + i * step, dec) for i in range(n + 1)]
+    ticks[0], ticks[-1] = lo, hi        # 端点钉死
+    out = []
+    for t in ticks:                     # 极端情况下去掉重合点
+        if not out or abs(t - out[-1]) > step * 1e-4:
+            out.append(t)
+    return out
+
+
+def _apply_smart_ticks(ax, a):
+    """某轴手动设了范围、但没手动设步长时，用"端点对齐"的智能刻度。
+
+    手动填了 x_major/y_major 的仍以手动步长为准（MultipleLocator 已设）；
+    没设手动范围的轴完全不碰，保持 matplotlib 自动刻度。
+    """
+    spec = (
+        (ax.xaxis, "x_min", "x_max", "x_major", ax.get_xlim, ax.set_xticks),
+        (ax.yaxis, "y_min", "y_max", "y_major", ax.get_ylim, ax.set_yticks),
+    )
+    for _axis, kmin, kmax, kmajor, get_limits, set_ticks in spec:
+        if (_limit(a.get(kmin)) is None and _limit(a.get(kmax)) is None):
+            continue
+        if (a.get(kmajor, 0) or 0) > 0:
+            continue
+        try:
+            lo, hi = get_limits()
+            ticks = nice_ticks(lo, hi)
+            if ticks:
+                set_ticks(ticks)
+        except Exception:
+            pass
+
+
 def apply_limits(ax, st):
     """坐标轴范围：只固定用户明确填了数值的那些边，没填的一律交给自动
 
@@ -1184,6 +1248,8 @@ def finish_axes(ax, xlabel, ylabel, st, auto_minor=True):
                 alpha=g["alpha"], color=g.get("color", "#999999"))
         ax.set_axisbelow(True)
     apply_limits(ax, st)
+    # 手动范围但没手动步长：智能刻度，保证端点落在刻度上
+    _apply_smart_ticks(ax, a)
     apply_texts(ax, st)
 
 
@@ -1259,6 +1325,28 @@ def apply_legend(ax, st, loc=None):
         columnspacing=lg.get("column_spacing", 2.0))
     if leg is not None and lg["frameon"]:
         leg.get_frame().set_linewidth(lg.get("border_width", 0.8))
+    # 图例文字颜色 = 各条曲线的真实颜色（以前一直是黑色，表格里改了也不生效）。
+    # 富文本覆盖层在 draw 时会读占位文字的 get_color()，所以这里先设好即可。
+    if leg is not None:
+        for text, handle in zip(leg.get_texts(), handles):
+            col = None
+            try:
+                if hasattr(handle, "get_color"):
+                    col = handle.get_color()
+            except Exception:
+                col = None
+            if col is None or (hasattr(col, "__len__") and not isinstance(col, str)):
+                try:
+                    fc = handle.get_facecolor()
+                    col = fc[0] if len(fc) else None
+                except Exception:
+                    col = None
+            if col is None:
+                continue
+            try:
+                text.set_color(col)
+            except Exception:
+                pass
     if leg is not None and rich:
         mt = st.get("mathtext", {}) or {}
         fs = st.get("font", {}) or {}

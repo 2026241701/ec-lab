@@ -1,7 +1,7 @@
 """Single-worker conductivity import/export dialog."""
 from pathlib import Path
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QThread, Slot
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
     QListWidget, QMessageBox, QPushButton, QPlainTextEdit, QTableWidget,
@@ -13,8 +13,9 @@ from ec_jobs import Worker as _Worker
 
 
 class ConductivityDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, output_dir=None):
         super().__init__(parent)
+        self._output_dir = output_dir or ""
         self.setWindowTitle("电导率处理 · 原始数据 → 标准 Excel → 一键绘图")
         self.resize(1000, 740)
         self._paths = []
@@ -223,7 +224,13 @@ class ConductivityDialog(QDialog):
             else:
                 QMessageBox.information(self, "已导出", str(self._export_path))
             return
-        target = default_output_dir() / "conductivity.xlsx"
+        # Y5: respect the user-configured output location instead of always
+        # writing into a fresh timestamped project-output folder. Fall back to
+        # the default only when no output directory was supplied.
+        if self._output_dir:
+            target = Path(self._output_dir) / "conductivity.xlsx"
+        else:
+            target = default_output_dir() / "conductivity.xlsx"
         result = self._result
         self.log.appendPlainText("正在导出完整数据与错误清单…")
 

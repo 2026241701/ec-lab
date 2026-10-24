@@ -21,7 +21,7 @@ TESTS = ["test_round4.py", "test_title.py", "test_palette.py",
          "t_bug3_color_group.py", "t_bug4_palette_nest.py",
          "t_bug6_paths_preview.py",          "t_bug7_nocompress.py",
          "t_scan_dedup.py", "t_eis_circuit.py", "t_palette_edit.py",
-         "t_mass_guard.py"]
+         "t_mass_guard.py", "test_file_kind.py"]
 
 if __name__ == "__main__":
     os.chdir(ROOT)

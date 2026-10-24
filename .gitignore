@@ -35,6 +35,9 @@ build/
 # 由 ec_lab.spec 构建：dist/ -> 发布包/ec-lab-portable/ + ec-lab-portable.zip
 发布包/
 
+# ---------- 用户自己的绘图模板（运行时产物，含个人样式） ----------
+绘图模板/
+
 # ---------- 开发期一次性产物 ----------
 _bt_state.txt
 错误日志.txt

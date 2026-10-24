@@ -606,6 +606,8 @@ class PlotStudio(QDialog):
         self._start(lambda: plotting.load_table_book(path), self._loaded, "正在读取表格，请稍候…")
 
     def _choose_recipe(self):
+        if self._busy:
+            return
         path, _ = QFileDialog.getOpenFileName(self, "打开绘图配方", str(plotting.BASE_DIR / "output"), "绘图配方 (*.json)")
         if path:
             self._start(lambda: plotting.load_recipe(path), self._recipe_loaded, "正在校验源文件并读取绘图配方…")
@@ -832,6 +834,12 @@ class PlotStudio(QDialog):
                 specs = copy.deepcopy(self.auto_specs)
                 if self.tabs.currentIndex() == 0 and specs:
                     specs[self._active_auto_index] = self._current_spec()
+                elif self.tabs.currentIndex() == 1:
+                    # Y6: when exporting all plots from the manual "按列绘图"
+                    # tab, the current hand-built plot was previously ignored.
+                    manual = self._current_spec()
+                    if manual is not None:
+                        specs.append(manual)
             else:
                 specs = [self._current_spec()]
             from ec_output_dialog import OutputSelectionDialog
@@ -870,7 +878,10 @@ class PlotStudio(QDialog):
 
     def reject(self):
         if self._busy:
-            self.status.setText("当前正在读取或输出，请完成后再关闭窗口。")
+            # Y1: loading/exporting used to swallow Esc/X with only a status
+            # line; surface an explicit notice so the window is not "stuck".
+            self.status.setText("当前正在读取或输出，完成后可关闭窗口。")
+            QMessageBox.warning(self, "请稍候", "当前正在读取或输出，请等待完成后再关闭窗口。")
             return
         if self.embedded:
             return
@@ -879,7 +890,8 @@ class PlotStudio(QDialog):
 
     def closeEvent(self, event):
         if self._busy:
-            self.status.setText("当前正在读取或输出，请完成后再关闭窗口。")
+            self.status.setText("当前正在读取或输出，完成后可关闭窗口。")
+            QMessageBox.warning(self, "请稍候", "当前正在读取或输出，请等待完成后再关闭窗口。")
             event.ignore()
             return
         if self.embedded:
