@@ -24,11 +24,15 @@ import time
 import traceback
 import tempfile
 
+# Keep numerical libraries from occupying every CPU core on a remote desktop.
+for _thread_var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_thread_var, "1")
+
 import matplotlib
 matplotlib.use("QtAgg")      # 预览图要嵌进 Qt 窗口，必须在导入 pyplot 前设置
 
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, Signal, QStandardPaths
-from PySide6.QtGui import (QFont, QFontMetrics, QColor, QPixmap, QIcon, QPainter,
+from PySide6.QtGui import (QFont, QFontMetrics, QColor, QPixmap, QIcon, QPainter, QImage,
                            QPen, QPolygon, QGuiApplication, QCursor)
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter, QGroupBox, QVBoxLayout,
@@ -56,6 +60,7 @@ sys.path.insert(0, BASE_DIR)
 import eclab   # noqa: E402  处理引擎（命令行与界面共用同一套代码）
 import ec_palette as ecpal   # noqa: E402  配色存储：存配色、记用色
 import cfg_guard  # noqa: E402  配置保险箱（自动备份 + 损坏自愈）
+from ec_workflow import calculation_signature, validate_output
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 MARKER_NAMES = eclab.MARKER_NAMES
@@ -2677,6 +2682,7 @@ class StylePanel(QWidget):
         # 换图了，之前那份数据点名字作废，否则表格行数对不上
         self._point_labels_cache = []
         self.cb_kind.setCurrentIndex(KIND_CODES.index(kind))
+        self.kind_display.setText(self.cb_kind.currentText())
         # 重填上百个控件时暂停重绘，切图不再一顿一顿
         self.setUpdatesEnabled(False)
         try:
@@ -2769,6 +2775,9 @@ class StylePanel(QWidget):
         self.cb_kind.addItems([n for n, _ in KINDS])
         self.cb_kind.currentIndexChanged.connect(self._on_kind)
         top.addWidget(self.cb_kind, stretch=1)
+        self.kind_display = QLabel(self.cb_kind.currentText())
+        self.kind_display.hide()
+        top.addWidget(self.kind_display, stretch=1)
         lay.addLayout(top)
 
         tabs = QTabWidget()
@@ -3996,6 +4005,42 @@ class 固定画布(FigureCanvasQTAgg):
         finally:
             self._in_resize_event = False
 
+    def paintEvent(self, event):
+        """Scale the complete Agg image; QtAgg otherwise crops at native pixels."""
+        self._draw_idle()
+        if not hasattr(self, "renderer"):
+            return
+        pixels = memoryview(self.buffer_rgba())
+        picture = QImage(pixels, pixels.shape[1], pixels.shape[0],
+                         QImage.Format_RGBA8888)
+        painter = QPainter(self)
+        try:
+            painter.eraseRect(event.rect())
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.drawImage(QRectF(self.rect()), picture)
+            # Matplotlib's rubber-band callback uses renderer pixels / DPR.
+            painter.scale(self.width() * self.device_pixel_ratio / pixels.shape[1],
+                          self.height() * self.device_pixel_ratio / pixels.shape[0])
+            self._draw_rect_callback(painter)
+        finally:
+            painter.end()
+
+    def mouseEventCoords(self, pos=None):
+        """Map a click on the scaled preview back to figure coordinates."""
+        if pos is None:
+            pos = self.mapFromGlobal(QCursor.pos())
+        elif hasattr(pos, "position"):
+            pos = pos.position()
+        elif hasattr(pos, "pos"):
+            pos = pos.pos()
+        return (pos.x() * self.figure.bbox.width / max(1, self.width()),
+                (self.height() - pos.y()) * self.figure.bbox.height
+                / max(1, self.height()))
+
+    def blit(self, bbox=None):
+        # Partial QtAgg blits assume an unscaled canvas. Repaint the scaled view.
+        self.update()
+
 
 class 比例画布框(QWidget):
     """把 matplotlib 画布按 figure 的真实宽高比放进容器，绝不拉伸。
@@ -4077,6 +4122,7 @@ class 比例画布框(QWidget):
         # 关键：禁止布局动这个画布的尺寸，尺寸只由我们算
         canvas.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.row.addWidget(canvas)
+        canvas.show()  # setParent(None) hides a cached canvas when switching away.
         # 布局还没跑完时视口尺寸是旧的，先让它算一次再定画布大小，
         # 否则刚挂上时会按默认 640×480 定尺寸，看起来就是"适应窗口没生效"
         self.sview.updateGeometry()
@@ -4166,6 +4212,11 @@ class 比例画布框(QWidget):
         self.canvas.setFixedSize(dw, dh)
         self.canvas.setMinimumSize(dw, dh)
         self.canvas.setMaximumSize(dw, dh)
+        # widgetResizable=False leaves an initially empty holder at 0 x 0.
+        # Give the scroll area's content an explicit size so it cannot clip
+        # the entire figure, including after switching back to a cached view.
+        self.holder.setFixedSize(dw, dh)
+        self.holder.layout().activate()
 
         # 注意：绝不在这里调 figure.set_size_inches！
         # 预览缩放/适应窗口只是"显示缩放"，图形本身的真实英寸尺寸必须恒定，
@@ -4385,13 +4436,10 @@ class PreviewDialog(QDialog):
         self._stale = set()       # 改参数后哪些缓存的图变旧了
         self._drawing = False
         self._busy = False        # 正在回填控件（这期间的信号不算用户改的）
-        self._cache = {}          # {序号: (fig, canvas)} 打开时一次画好
+        self._cache = {}          # 最多保留最近三张，避免批量 EIS 占满内存
         self._build()
         if self.items:
-            self._show_current()
-            # 先把窗口显示出来，再把剩下的图偷偷画完存进内存 ——
-            # 之后切图直接取缓存，不用现画（切图卡顿的根因就在这）
-            QTimer.singleShot(60, self._warm_cache)
+            self._on_pick(0)
 
     def _build(self):
         lay = QVBoxLayout(self)
@@ -4468,6 +4516,8 @@ class PreviewDialog(QDialog):
                                for k in KIND_CODES},
                               self.cfg.get("output", {}))
         # 不再改一个参数就重画：标记为"待重画"，等用户点按钮
+        self.panel.cb_kind.hide()
+        self.panel.kind_display.show()
         self.panel.changed = self._mark_dirty
         rl.addWidget(self.panel, stretch=1)
         body.addWidget(right)
@@ -4509,7 +4559,7 @@ class PreviewDialog(QDialog):
         hb_out.addSpacing(6)
         hb_out.addWidget(QLabel("输出到："))
         self.lab_dir = QLabel(self.cfg.get("output", {}).get(
-            "dir", eclab.OUTPUT_DIR))
+            "dir") or eclab.OUTPUT_DIR)
         self.lab_dir.setObjectName("hint")
         self.lab_dir.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.lab_dir.setFixedWidth(360)
@@ -4543,7 +4593,7 @@ class PreviewDialog(QDialog):
         b_one.clicked.connect(self._save_current)
         b_ok = QPushButton("保存参数")
         b_ok.setObjectName("primary")
-        b_ok.setToolTip("把改动保存下来并输出全部图片")
+        b_ok.setToolTip("保存当前绘图参数，之后点「直接输出」选择图片")
         b_ok.clicked.connect(self.accept)
         hb2.addWidget(b_tpl)
         hb2.addStretch(1)
@@ -4556,6 +4606,10 @@ class PreviewDialog(QDialog):
         """切换正在看的图：只显示（走缓存），绝不偷偷重画"""
         if i < 0 or i >= len(self.items):
             return
+        if self.panel._timer.isActive():
+            self.panel._timer.stop()
+            self._mark_dirty()
+        self._sync_cfg()
         self.idx = i
         kind = eclab.kind_of_key(self.items[i][0])
         # 先显示、再填控件：填控件时要从这张图上读真实轴标题自动填进
@@ -4567,6 +4621,7 @@ class PreviewDialog(QDialog):
         self._busy = True
         try:
             self.panel.set_kind(kind)
+            self.panel.kind_display.setText(self.items[i][1])
         finally:
             self._busy = False
         # set_kind 会顺手清掉"数据点名字"的缓存，这里补回来。
@@ -4576,6 +4631,7 @@ class PreviewDialog(QDialog):
         try:
             self._push_point_labels()
         finally:
+            self.panel._timer.stop()
             self._busy = False
 
     def _push_point_labels(self):
@@ -4603,8 +4659,7 @@ class PreviewDialog(QDialog):
     def _step(self, d):
         if not self.items:
             return
-        self.idx = (self.idx + d) % len(self.items)
-        self.cb_fig.setCurrentIndex(self.idx)
+        self.cb_fig.setCurrentIndex((self.idx + d) % len(self.items))
 
     def _sync_cfg(self):
         styles, out = self.panel.styles_all()
@@ -4650,8 +4705,18 @@ class PreviewDialog(QDialog):
         if fig is None:
             raise RuntimeError("这张图画不出来")
         canvas = 固定画布(fig)
-        canvas.draw_idle()
+        canvas.draw()
         self._cache[i] = (fig, canvas)
+        # Never evict the currently displayed canvas while it is in its layout.
+        while len(self._cache) > 3:
+            victim = next((k for k in self._cache
+                           if k != i and self._cache[k][0] is not self.fig), None)
+            if victim is None:
+                break
+            old_fig, old_canvas = self._cache.pop(victim)
+            import matplotlib.pyplot as plt
+            plt.close(old_fig)
+            old_canvas.deleteLater()
         return fig, canvas
 
     def _warm_cache(self):
@@ -4660,7 +4725,7 @@ class PreviewDialog(QDialog):
         这是"切图卡顿"的正解：以前每切一次都要新建 Figure + Canvas
         （上百毫秒，还连带整窗重排），现在切图只是换一个已经画好的画布。
         """
-        for i in range(len(self.items)):
+        for i in range(min(3, len(self.items))):
             try:
                 self._figure_at(i)
             except Exception:
@@ -4700,8 +4765,10 @@ class PreviewDialog(QDialog):
         self.setUpdatesEnabled(False)
         try:
             fig, canvas = self._figure_at(self.idx)
-        except Exception:
-            self.lab_hint.setText("这张图画不出来（数据可能有问题）")
+        except Exception as exc:
+            self.fig = None
+            self.lab_hint.setText("无法预览：" + str(exc))
+            self.lab_hint.setToolTip(traceback.format_exc())
             self.setUpdatesEnabled(True)
             self._drawing = False
             self._busy = False
@@ -4730,6 +4797,8 @@ class PreviewDialog(QDialog):
         """「重新绘制」按钮：把当前这张按新参数真画一遍（切图不会走到这）"""
         if not self.items or self._drawing:
             return
+        # Consume edits even when the 100 ms style debounce has not fired yet.
+        self.panel._timer.stop()
         self._drawing = True
         self._busy = True
         self.setUpdatesEnabled(False)
@@ -4754,8 +4823,10 @@ class PreviewDialog(QDialog):
                     pass
             self.canvas = None
             fig, canvas = self._figure_at(self.idx)
-        except Exception:
-            self.lab_hint.setText("这张图画不出来（数据可能有问题）")
+        except Exception as exc:
+            self.fig = None
+            self.lab_hint.setText("无法预览：" + str(exc))
+            self.lab_hint.setToolTip(traceback.format_exc())
             self.setUpdatesEnabled(True)
             self._drawing = False
             self._busy = False
@@ -4765,6 +4836,7 @@ class PreviewDialog(QDialog):
         self.canvas_box.set_canvas(canvas)
         self.bar.attach(canvas)
         self.panel.set_legend_labels(self._legend_texts(fig))
+        self.panel._timer.stop()  # legend/control population is not a user edit
         self._dirty = False
         self._stale.discard(self.idx)
         self.b_draw.setText("重新绘制")
@@ -4821,14 +4893,27 @@ class PreviewDialog(QDialog):
         super().closeEvent(ev)
 
     def _save_current(self):
+        if self.panel._timer.isActive():
+            self.panel._timer.stop()
+            self._mark_dirty()
+        if self._dirty or self.idx in self._stale:
+            self._redraw()
+            if self._dirty or self.idx in self._stale:
+                QMessageBox.warning(self, "输出未完成", "新样式重绘失败，请先检查图形参数。")
+                return
         styles, out = self._sync_cfg()
         if self.fig is None:
             return
         key = self.items[self.idx][0]
+        try:
+            output_dir = validate_output(self.cfg, eclab.OUTPUT_DIR)
+        except ValueError as exc:
+            QMessageBox.warning(self, "请选择输出位置", str(exc))
+            return
         made = eclab.save_fig(
             self.fig, key.replace(":", "_").replace("/", "_"),
             styles[eclab.kind_of_key(key)], out["formats"], out["dpi"],
-            out_dir=out.get("dir") or eclab.OUTPUT_DIR)
+            out_dir=output_dir)
         QMessageBox.information(self, "已输出", "已保存：\n" + "\n".join(made))
 
     def _save_template(self):
@@ -4874,7 +4959,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setFont(QFont("Microsoft YaHei", 9))
-        self.setWindowTitle("CHI电化学一键绘图")
+        self.setWindowTitle("ec-lab · 数据处理与一键绘图")
         self.setWindowIcon(app_icon())
         self.resize(1360, 880)
         self.log_q = queue.Queue()
@@ -4885,6 +4970,11 @@ class MainWindow(QMainWindow):
         self._running = False
         self._pending = None
         self._last_data = None
+        self._last_signature = None
+        self._last_workbook = None
+        self.workspaces = None
+        self._job_result = None
+        self._job_error = None
         self.theme = "classic"
         self.style_cfg = json.loads(json.dumps(eclab.DEFAULT_STYLE))
         self.style_by_kind = {}
@@ -4895,6 +4985,9 @@ class MainWindow(QMainWindow):
         self._load_config_file(CONFIG_PATH, silent=True)
         self._startup = False
         self.dir_list.clear()        # 每次打开都从空的开始，列表里显示=有文件
+        from ec_workspaces import WorkspaceHost
+        self.workspaces = WorkspaceHost(self, self.takeCentralWidget())
+        self.setCentralWidget(self.workspaces)
         if self._dir_history:
             self._append("上次用过的文件夹路径已记住，点「添加…」会直接打开")
         QTimer(self, interval=150, timeout=self._drain_log).start()
@@ -4902,15 +4995,24 @@ class MainWindow(QMainWindow):
     def _build_ui(self):
         self._build_menu()
         tb = QToolBar("主工具栏")
+        self._main_toolbar = tb
         tb.setMovable(False)
         for text, slot, tip in (
                 ("添加文件夹", self.add_dir, "选择数据文件夹（添加后自动扫描）"),
-                ("开始处理", self.run, "算数并保存数据，算完提示完成"),
+                ("开始处理", self.run, "按原脚本与模板生成 Excel，保留原来的布局"),
+                ("电导率处理", self.open_conductivity, "导入电导率原始表格，统一时间与单位并导出 Excel"),
+                ("Excel 一键绘图", self.open_plot_studio, "打开处理后的 Excel 或 CSV，选模板并批量出图"),
                 ("预览图形", self.open_preview, "打开预览窗修改绘图参数"),
-                ("直接输出", self.quick_render, "按当前参数直接出图（有数据就不重算）"),
+                ("直接输出", self.quick_render, "选择图片、名称与保存位置后输出"),
                 ("绘图模板", self.open_plot_settings, "加载 / 保存绘图样式模板"),
                 ("输出位置", self.choose_out_dir, "选择图片保存文件夹"),
                 ("打开结果", self.open_out_dir, "打开输出文件夹")):
+            if text in ("添加文件夹", "Excel 一键绘图"):
+                if text == "Excel 一键绘图":
+                    tb.addSeparator()
+                label = QLabel("  数据处理  " if text == "添加文件夹" else "  一键绘图  ")
+                label.setObjectName("hint")
+                tb.addWidget(label)
             b = QPushButton(text)
             b.setToolTip(tip)
             b.clicked.connect(slot)
@@ -5339,43 +5441,82 @@ class MainWindow(QMainWindow):
 
     def _build_menu(self):
         mb = self.menuBar()
+        self._workspace_actions = []
+        def action(menu, title, callback):
+            item = menu.addAction(title, callback)
+            self._workspace_actions.append(item)
+            return item
         m = mb.addMenu("文件")
-        m.addAction("添加数据文件夹", self.add_dir)
-        m.addAction("选择输出位置…", self.choose_out_dir)
-        m.addAction("打开结果文件夹", self.open_out_dir)
-        m.addAction("查看错误日志", self._view_error_log)
+        action(m, "添加文件夹…", lambda: self.workspaces.process_action("add_folder"))
+        action(m, "输出位置…", self.choose_out_dir)
+        m.addAction("结果文件夹", self.open_out_dir)
         m.addSeparator()
         m.addAction("退出", self.close)
         m = mb.addMenu("处理")
-        m.addAction("扫描文件", self.scan)
-        m.addAction("开始处理（算数并保存数据）", self.run)
-        m.addAction("直接输出", self.quick_render)
+        action(m, "加载数据处理模板…", lambda: self.workspaces.process_action("load_processing_template"))
+        action(m, "保存数据处理模板…", lambda: self.workspaces.process_action("save_processing_template"))
+        action(m, "修改数据处理模板", lambda: self.workspaces.process_action("edit_processing_template"))
         m = mb.addMenu("绘图")
-        m.addAction("预览图形（改绘图参数）", self.open_preview)
-        m.addAction("绘图设置…", self.open_plot_settings)
-        m.addSeparator()
-        m.addAction("调色盘…", lambda: pick_color(
-            QLineEdit("#1F6E5A"), self))
-        m = mb.addMenu("模板")
-        m.addAction("保存绘图模板", lambda: self.save_template("绘图模板"))
-        m.addAction("加载绘图模板", lambda: self.load_template("绘图模板"))
-        m.addAction("保存数据处理模板",
-                    lambda: self.save_template("数据处理模板"))
-        m.addAction("加载数据处理模板",
-                    lambda: self.load_template("数据处理模板"))
+        templates = m.addMenu("绘图模板")
+        action(templates, "加载模板…", lambda: self.workspaces.plot_action("load_style_template"))
+        action(templates, "编辑模板…", lambda: self.workspaces.plot_action("edit_style_template"))
+        action(m, "绘图设置", lambda: self.workspaces.plot_action("show_plot_settings"))
+        action(m, "调色盘…", lambda: self.workspaces.plot_action("choose_palette"))
         m = mb.addMenu("外观")
-        m.addAction("经典配色", lambda: self.set_theme("classic"))
-        m.addAction("黑暗配色", lambda: self.set_theme("dark"))
+        m.addAction("浅色模式", lambda: self.set_theme("classic"))
+        m.addAction("深色模式", lambda: self.set_theme("dark"))
         m = mb.addMenu("帮助")
         m.addAction("使用说明", self.show_help)
+        m.addAction("科研绘图设计学习报告", lambda: self._open_project_doc("科研绘图项目设计学习报告-20261024.md"))
+        advanced = m.addMenu("高级电化学工具")
+        action(advanced, "打开高级工作区", lambda: self.workspaces.show_advanced())
+        action(advanced, "原绘图模板与详细设置…", lambda: self._advanced_action(self.open_plot_settings))
+        action(advanced, "原数据处理模板加载…", lambda: self._advanced_action(lambda: self.load_template("数据处理模板")))
+        action(advanced, "原数据处理模板保存…", lambda: self._advanced_action(lambda: self.save_template("数据处理模板")))
+        m.addAction("查看错误日志", self._view_error_log)
+        m.addAction("关于 ec-lab", lambda: QMessageBox.information(
+            self, "关于 ec-lab", "ec-lab · 数据处理与一键绘图\n\n"
+            "保留原 Excel 数据处理格式；基于 PySide6 与 Matplotlib。\n"
+            "科研绘图设计参考及开源来源见帮助中的学习报告。"))
+
+    def _advanced_action(self, callback):
+        if self._running or (self.workspaces and self.workspaces.is_busy()):
+            return
+        if self.workspaces:
+            self.workspaces.show_advanced()
+        callback()
+
+    def _open_project_doc(self, filename):
+        path = os.path.join(BASE_DIR, "docs", filename)
+        try:
+            os.startfile(path)
+        except Exception as exc:
+            QMessageBox.information(self, "文档位置", path + "\n\n" + str(exc))
 
     def show_help(self):
+        QMessageBox.information(self, "使用说明",
+            "数据处理\n"
+            "① 选择处理类型，添加文件或文件夹。左侧保留本批文件清单。\n"
+            "② 核对质量、体积和采样方式；需要时展开参数。\n"
+            "③ 开始处理生成 Excel；完成后选择结果，进入一键绘图。\n\n"
+            "一键绘图\n"
+            "① 打开处理后的 Excel，自动列出常用图，也可以按列绘图。\n"
+            "② 在上方“当前预览”切图，展开“绘图设置”修改坐标轴、图例、颜色、字体和尺寸。\n"
+            "③ 点击输出，勾选图片、修改名称、格式和保存位置；至少选择一张。\n"
+            "④ 完成后可以选择是否打开保存位置。\n\n"
+            "模板与文件\n"
+            "· 处理菜单管理数据处理参数；绘图模板保存外观，绘图配方记录本次数据与设置。\n"
+            "· CDI 默认 50 mL；质量自动建议可改，混合质量分批处理；原始数据只读。\n"
+            "· 切换工作区保留当前内容。浅色/深色只改变软件外观，论文画布保持白底。\n"
+            "· 比电容、EIS、原详细预览仍在“帮助 → 高级电化学工具”。")
+
+    def _show_legacy_help(self):
         QMessageBox.information(
             self, "使用说明",
             "① 添加文件夹 → ② 扫描并勾选文件（质量双击可改）\n"
             "③ 开始处理：算数并保存数据，算完提示完成\n"
             "④ 点「预览图形」改绘图参数；满意后点「直接输出」出图\n"
-            "   （输出完会自动打开结果文件夹，输出位置显示在右上角）\n\n"
+            "   （输出完可选择是否打开结果文件夹）\n\n"
             "处理参数怎么用：\n"
             "· 取 segment 默认就是 2、3，不用动；只有确实要改时，"
             "才勾「自定义要取的 segment」。\n"
@@ -5432,10 +5573,33 @@ class MainWindow(QMainWindow):
     # ---------------- 日志与后台 ----------------
     def _drain_log(self):
         buf, done, preview, open_dir = [], False, False, False
+        cached_preview = False
+        output_ready = output_finished = None
         warn_anom = 0
         try:
             while True:
                 s = self.log_q.get_nowait()
+                if isinstance(s, tuple) and s[0] == "job_result":
+                    result = s[1]
+                    if result.get("kind") == "scan":
+                        self._populate_scan(result["files"], result["skipped"], result["cfg"])
+                        continue
+                    if result.get("kind") == "preview_ready":
+                        cached_preview = True
+                    if result.get("kind") == "output_ready":
+                        output_ready = result
+                    if result.get("kind") == "output_finished":
+                        output_finished = result
+                        continue
+                    self._last_data = result["data"]
+                    self._last_signature = result["signature"]
+                    self._last_workbook = result.get("workbook", self._last_workbook)
+                    self._pending = self._last_data
+                    warn_anom = len(self._last_data.get("anomalies") or [])
+                    continue
+                if isinstance(s, tuple) and s[0] == "job_error":
+                    self._job_error = s[1]
+                    continue
                 if s == "<<DONE>>":
                     done = True
                 elif s == "<<PREVIEW>>":
@@ -5464,7 +5628,20 @@ class MainWindow(QMainWindow):
                 pass
         if done:
             self._running = False
-            self.statusBar().showMessage("完成")
+            self.centralWidget().setEnabled(True)
+            self._main_toolbar.setEnabled(True)
+            self.menuBar().setEnabled(True)
+            self.statusBar().showMessage("处理失败，请查看日志" if self._job_error else "完成")
+            if self._job_error:
+                QMessageBox.warning(self, "处理未完成", self._job_error)
+                self._job_error = None
+        if cached_preview:
+            self._show_preview_dialog()
+        if output_ready:
+            self._choose_plot_output(output_ready["data"], output_ready["cfg"])
+        if output_finished:
+            from ec_output_dialog import offer_open_folder
+            offer_open_folder(self, output_finished["folder"], len(output_finished["files"]))
 
     def _warn_anomaly(self):
         """弹窗列出物理上不合理的结果，拦一道，别让错数据流进论文"""
@@ -5517,10 +5694,24 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("就绪")
 
     def open_preview(self):
-        if self._last_data is None:
-            QMessageBox.information(self, "提示",
-                                    "还没有算过数据，请先点「开始处理」。")
+        self._prepare_for_plot("preview_ready")
+
+    def _prepare_for_plot(self, action):
+        if self._running:
             return
+        cfg = self._processing_cfg(validate_destination=False)
+        if cfg is None:
+            return
+        previous, previous_signature = self._last_data, self._last_signature
+        def work():
+            signature = calculation_signature(cfg)
+            data = previous if previous is not None and signature == previous_signature else eclab.prepare(cfg)
+            if not eclab.preview_list(data, cfg):
+                raise ValueError("没有可绘制的数据，请检查文件选择、质量与日志中的跳过原因。")
+            return {"kind": action, "data": data, "signature": signature, "cfg": cfg}
+        self._start_job(work, "正在准备图形数据…")
+
+    def _show_preview_dialog(self):
         dlg = PreviewDialog(self, self._last_data, self.current_cfg())
         if dlg.exec():
             cfg = dlg.final_cfg()
@@ -5540,25 +5731,64 @@ class MainWindow(QMainWindow):
             self._append("参数已保存，点「直接输出」按新参数出图。")
 
     def _do_render(self, data, cfg):
-        self._running = True
-        self.statusBar().showMessage("正在输出图片…")
-        old_stdout = sys.stdout
-        sys.stdout = QueueWriter(self.log_q)
-        sys.stderr = QueueWriter(self.log_q)
-
+        if self._running:
+            return
+        try:
+            cfg["output"]["dir"] = validate_output(cfg, eclab.OUTPUT_DIR)
+        except ValueError as exc:
+            QMessageBox.warning(self, "请选择输出位置", str(exc))
+            return
         def work():
-            try:
-                eclab.render(data, cfg)
-                od = cfg.get("output", {}).get("dir", eclab.OUTPUT_DIR)
-                self.log_q.put("\n[完成] 结果目录：" + od + "\n")
-                self.log_q.put("<<OPEN_DIR>>")   # 输出后自动打开结果文件夹
-            except Exception:
-                self.log_q.put("\n[出错]\n" + traceback.format_exc() + "\n")
-            finally:
-                sys.stdout = old_stdout
-                self.log_q.put("<<DONE>>")
+            eclab.render(data, cfg)
+            print("[完成] 图片与 Excel 已保存到：" + cfg["output"]["dir"])
+        self._start_job(work, "正在输出图片…")
 
-        threading.Thread(target=work, daemon=True).start()
+    def _start_job(self, work, message):
+        """One computation/export at a time; all widget access stays on the UI thread."""
+        if self._running or (self.workspaces and self.workspaces.is_busy()):
+            return
+        self._running = True
+        self._job_error = None
+        self.centralWidget().setEnabled(False)
+        self._main_toolbar.setEnabled(False)
+        self.menuBar().setEnabled(False)
+        self.statusBar().showMessage(message)
+        def worker():
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            try:
+                sys.stdout = sys.stderr = QueueWriter(self.log_q)
+                result = work()
+                if result is not None:
+                    self.log_q.put(("job_result", result))
+            except Exception as exc:
+                self.log_q.put("\n[出错]\n" + traceback.format_exc() + "\n")
+                self.log_q.put(("job_error", str(exc)))
+            finally:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+                self.log_q.put("<<DONE>>")
+        self._worker_thread = threading.Thread(target=worker, daemon=True)
+        self._worker_thread.start()
+
+    def open_plot_studio(self):
+        if self._running:
+            return
+        if self.workspaces:
+            self.workspaces.show_plot(self._last_workbook)
+            return
+        from ec_plot_studio import PlotStudio
+        PlotStudio(self, initial_path=self._last_workbook).exec()
+
+    def open_conductivity(self):
+        if self._running:
+            return
+        if self.workspaces:
+            self.workspaces.show_data("cdi")
+            return
+        from ec_legacy_ui import LegacyExcelDialog
+        dialog = LegacyExcelDialog(self, mode="cdi", output_dir=self.output_cfg.get("dir"))
+        dialog.exec()
+        if dialog.result_files:
+            self._last_workbook = dialog.result_files[0]
 
     # ---------------- 配置 ----------------
     @staticmethod
@@ -5579,6 +5809,7 @@ class MainWindow(QMainWindow):
         gcd_segs = (self._parse_segs(self.ed_gcd_segs.text())
                     if self.ck_gcd_segs.isChecked() else [])
         cfg = {
+            "protected_data_dirs": ["E:/Data"] if os.name == "nt" else [],
             "data_dir": [self.dir_list.item(i).text()
                          for i in range(self.dir_list.count())],
             "area_cm2": self.sp_area.value(),
@@ -5686,11 +5917,15 @@ class MainWindow(QMainWindow):
         out = cfg.get("output") or {}
         self.output_cfg = {"formats": out.get("formats", ["png", "pdf"]),
                            "dpi": out.get("dpi", 600),
-                           "dir": out.get("dir", eclab.OUTPUT_DIR)}
+                           "dir": out.get("dir") or eclab.OUTPUT_DIR}
         self.sp_dpi.setValue(int(self.output_cfg["dpi"]))
         self.lab_out.setText(self.output_cfg["dir"])
+        if hasattr(self, "lab_out_bar"):
+            self.lab_out_bar.setText("输出：" + self.output_cfg["dir"])
         for k, c in self.fmt_boxes.items():
             c.setChecked(k in self.output_cfg["formats"])
+        if self.workspaces:
+            self.workspaces.set_output_dir(self.output_cfg["dir"])
 
     # ---------------- 事件 ----------------
     def _circuit_code(self):
@@ -5738,30 +5973,30 @@ class MainWindow(QMainWindow):
             self.scan()          # 添加文件夹后自动扫描，不用再多点一下
 
     def quick_render(self):
-        """直接输出：有已算好的数据就直接出图（不重算），没有才先算"""
-        cfg = self.current_cfg()
-        if not cfg["data_dir"]:
-            QMessageBox.information(self, "提示", "请先添加数据文件夹")
+        self._prepare_for_plot("output_ready")
+
+    def _choose_plot_output(self, data, cfg):
+        from ec_output_dialog import OutputSelectionDialog, render_selected
+        from ec_export import input_directories
+        dlg = OutputSelectionDialog(self, eclab.preview_list(data, cfg),
+            cfg["output"].get("dir") or eclab.OUTPUT_DIR,
+            cfg["output"].get("formats", ["png"]), input_directories(data, cfg))
+        if not dlg.exec():
+            self._append("已取消输出，没有保存图片。")
             return
-        data = self._last_data
-        if data is None:
-            self._append("还没有算好的数据，先算一次…")
-            try:
-                data = eclab.prepare(cfg)
-                self._last_data = data
-            except Exception as exc:
-                QMessageBox.warning(self, "输出失败", str(exc))
-                self._append(f"[错误] {exc}")
-                return
-        self._append("直接输出：按当前参数出图…")
-        try:
-            eclab.render(data, cfg)
-            self._append("直接输出完成")
-            od = cfg.get("output", {}).get("dir") or eclab.OUTPUT_DIR
-            os.startfile(od)      # 输出后自动打开结果文件夹
-        except Exception as exc:
-            QMessageBox.warning(self, "输出失败", str(exc))
-            self._append(f"[错误] {exc}")
+        cfg["output"]["dir"] = dlg.output_dir
+        cfg["output"]["formats"] = dlg.formats
+        self.output_cfg.update(cfg["output"])
+        self.lab_out.setText(dlg.output_dir)
+        self.lab_out_bar.setText("输出：" + dlg.output_dir)
+        for fmt, box in self.fmt_boxes.items():
+            box.setChecked(fmt in dlg.formats)
+        selected = dlg.selection
+        def work():
+            files = render_selected(data, cfg, selected)
+            print("已保存：\n" + "\n".join(files))
+            return {"kind": "output_finished", "folder": dlg.output_dir, "files": files}
+        self._start_job(work, "正在输出选中的图片…")
 
     def remove_dir(self):
         for item in self.dir_list.selectedItems():
@@ -5775,10 +6010,13 @@ class MainWindow(QMainWindow):
             self.lab_out.setText(d)
             if hasattr(self, "lab_out_bar"):
                 self.lab_out_bar.setText("输出：" + d)
+            if self.workspaces:
+                self.workspaces.set_output_dir(d)
 
     def open_out_dir(self):
         try:
-            os.startfile(self.output_cfg.get("dir") or eclab.OUTPUT_DIR)
+            folder = self.workspaces.result_directory() if self.workspaces else self.output_cfg.get("dir")
+            os.startfile(folder or eclab.OUTPUT_DIR)
         except Exception as exc:
             QMessageBox.warning(self, "打不开", str(exc))
 
@@ -5794,15 +6032,20 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "打不开", str(exc))
 
     def scan(self):
+        if self._running:
+            return
         cfg = self.current_cfg(include_files=False)
         if not cfg["data_dir"]:
             QMessageBox.information(self, "提示", "请先添加数据文件夹")
             return
-        try:
+        def work():
             files, skipped = eclab.scan_files(cfg)
-        except Exception as exc:
-            QMessageBox.warning(self, "扫描失败", str(exc))
-            return
+            if sum(len(paths) for paths in files.values()) > 5000:
+                raise ValueError("一次扫描超过 5000 个实验文件，请选择具体样品的子文件夹。")
+            return {"kind": "scan", "files": files, "skipped": skipped, "cfg": cfg}
+        self._start_job(work, "正在扫描文件，窗口保持响应…")
+
+    def _populate_scan(self, files, skipped, cfg):
         self.table.blockSignals(True)
         self.table.setRowCount(0)
         for kind in ("CV", "GCD", "EIS"):
@@ -5860,6 +6103,7 @@ class MainWindow(QMainWindow):
                 self.table.setItem(r, 5, it_dt)
         self.table.blockSignals(False)
         self._fit_name_col()
+        self._update_count()
         self._append(f"扫描完成：CV {len(files['CV'])} | GCD "
                      f"{len(files['GCD'])} | EIS {len(files['EIS'])}"
                      f"（另有 {len(skipped)} 个按规则排除）")
@@ -6072,10 +6316,52 @@ class MainWindow(QMainWindow):
     def run(self):
         if self._running:
             return
+        from ec_legacy_ui import LegacyExcelDialog
+        paths, masses = [], set()
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, 0).checkState() != Qt.Checked:
+                continue
+            if self.table.item(row, 1).text() == "EIS":
+                continue
+            paths.append(self.table.item(row, 2).data(Qt.UserRole))
+            try:
+                masses.add(float(self.table.item(row, 3).text()))
+            except ValueError:
+                pass
+        dialog = LegacyExcelDialog(self, paths=paths, mass_mg=next(iter(masses)) if len(masses)==1 else None,
+                                   output_dir=self.output_cfg.get("dir"))
+        if len(masses)>1:
+            dialog.log.appendPlainText("所选文件有多个质量，请按同一样品、同一质量分批生成原样 Excel，并核对本次质量。")
+            dialog.files.clear()
+        dialog.exec()
+        if dialog.result_files:
+            self._last_workbook = dialog.result_files[0]
+            self._append("原样 Excel 已生成：\n" + "\n".join(dialog.result_files))
+        if dialog.want_analysis:
+            self.run_analysis()
+
+    def run_analysis(self):
+        if self._running:
+            return
+        cfg = self._processing_cfg()
+        if cfg is None:
+            return
+        def work():
+            signature = calculation_signature(cfg)
+            data = eclab.prepare(cfg)
+            workbook = eclab.export_tables(data, cfg)
+            if not workbook:
+                raise ValueError("没有可导出的数据。请检查样品质量、文件勾选和日志中的跳过原因。")
+            print("\n[处理完成] Excel 已保存：" + str(workbook))
+            print("点击「Excel 一键绘图」可选科研模板出图；也可以打开「预览图形」调整详细样式。")
+            return {"data": data, "signature": signature, "workbook": str(workbook)}
+        self._start_job(work, "正在处理数据并保存 Excel…")
+
+    def _processing_cfg(self, validate_destination=True):
         cfg = self.current_cfg()
         if not cfg["data_dir"]:
             QMessageBox.information(self, "提示", "请先添加数据文件夹")
-            return
+            return None
         for r in range(self.table.rowCount()):
             if self.table.item(r, 1).text() == "EIS":
                 continue
@@ -6092,36 +6378,14 @@ class MainWindow(QMainWindow):
                 self.table.item(r, 0).checkState() == Qt.Checked
                 for r in range(self.table.rowCount())):
             QMessageBox.information(self, "提示", "没有勾选任何文件")
-            return
-        self._running = True
-        self.statusBar().showMessage("正在计算，请稍候…")
-        old_stdout = sys.stdout
-        sys.stdout = QueueWriter(self.log_q)
-        sys.stderr = QueueWriter(self.log_q)
-
-        def work():
+            return None
+        if validate_destination:
             try:
-                data = eclab.prepare(cfg)
-                self._pending = data
-                self._last_data = data          # 数据留存，供预览/直接输出复用
-                # 物理上不合理的结果必须弹窗提醒，不能只埋在日志里
-                anom = data.get("anomalies") or []
-                if anom:
-                    self.log_q.put(
-                        "\n[注意] %d 处结果物理上不合理：\n" % len(anom)
-                        + "\n".join("  " + str(a) for a in anom) + "\n")
-                    self.log_q.put("<<WARN_ANOM:%d>>" % len(anom))
-                self.log_q.put(
-                    "\n[处理完成] 数据已保存。可以点「预览图形」改绘图参数，"
-                    "或点「直接输出」按当前参数出图。\n")
-                self.log_q.put("<<DONE>>")
-            except Exception:
-                self.log_q.put("\n[出错]\n" + traceback.format_exc() + "\n")
-                self.log_q.put("<<DONE>>")
-            finally:
-                sys.stdout = old_stdout
-
-        threading.Thread(target=work, daemon=True).start()
+                cfg["output"]["dir"] = validate_output(cfg, eclab.OUTPUT_DIR)
+            except ValueError as exc:
+                QMessageBox.warning(self, "请选择输出位置", str(exc))
+                return None
+        return cfg
 
     # ---------------- 模板 ----------------
     def save_template(self, kind):
@@ -6221,6 +6485,10 @@ class MainWindow(QMainWindow):
         self.log.append(s.rstrip())
 
     def closeEvent(self, event):
+        if self._running or (self.workspaces and self.workspaces.is_busy()):
+            self.statusBar().showMessage("正在处理，请等待完成后再关闭，以免中断文件写入。")
+            event.ignore()
+            return
         try:
             merged = dict(self._cfg_comments)
             merged.update(self.current_cfg(include_files=False))

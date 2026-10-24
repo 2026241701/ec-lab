@@ -25,8 +25,13 @@ import numpy as np
 import pandas as pd
 
 import matplotlib
-matplotlib.use("Agg")
+# Respect the GUI's chosen backend; newly created engine figures use their own
+# Agg canvas below and therefore do not require a Qt window in worker threads.
+if "matplotlib.pyplot" not in sys.modules:
+    matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 
 import richlabel
@@ -646,7 +651,8 @@ def color_of(st, i):
 
 def read_text(path):
     """CHI660F 文件可能是 UTF-8 或 GBK，逐个尝试"""
-    raw = open(path, "rb").read()
+    with open(path, "rb") as source:
+        raw = source.read()
     for enc in ("utf-8-sig", "utf-8", "gbk"):
         try:
             return raw.decode(enc)
@@ -759,12 +765,12 @@ def parse_zview_fit(path):
     text = read_text(path)
     lines = text.splitlines()
     data = load_numeric(lines, sep="tab")
-    if data.size == 0 or data.shape[1] < 4:
+    if data.size == 0 or data.shape[1] < 6:
         return None
     f = data[:, 1]
     zr_d, zi_d = data[:, 2], data[:, 3]
-    zr_f = data[:, 4] if data.shape[1] >= 6 else zr_d
-    zi_f = data[:, 5] if data.shape[1] >= 6 else zi_d
+    zr_f = data[:, 4]
+    zi_f = data[:, 5]
     return f, zr_d, zi_d, zr_f, zi_f
 
 
@@ -781,9 +787,12 @@ def find_fit_file(path):
 def export_zview(path, f, zr, zi, out_dir=None):
     """导出 ZView 可读的 .z 文件（Tab 分隔三列：Freq  Z'  Z''）"""
     out_dir = out_dir or OUTPUT_DIR
+    from ec_export import validate_output_dir, unused_path
+    source_dirs = [os.path.dirname(os.path.abspath(path))] if os.path.isfile(path) else []
+    out_dir = validate_output_dir(out_dir, source_dirs)
     os.makedirs(out_dir, exist_ok=True)
     name = os.path.splitext(os.path.basename(path))[0] + ".z"
-    dst = os.path.join(out_dir, name)
+    dst = unused_path(os.path.join(out_dir, name))
     with open(dst, "w", encoding="utf-8") as fo:
         fo.write('"Made by ec-lab"\n')
         fo.write('"Frequency" "Z\'" "Z\'\'"\n')
@@ -855,7 +864,7 @@ def cv_capacitance(E, I, scan_rate_Vs, mass_g, window=None):
     """CV 积分比电容 C (F/g)：C = 环路 |I|dV 积分 / (2 * v * dV * m)"""
     if window is None:
         window = E.max() - E.min()
-    if window <= 0 or scan_rate_Vs <= 0 or mass_g <= 0:
+    if not all(np.isfinite(v) and v > 0 for v in (window, scan_rate_Vs, mass_g)):
         return np.nan
     dE = np.diff(E)
     sign = np.sign(dE)
@@ -891,6 +900,11 @@ def gcd_metrics(chg_t, chg_V, dis_t, dis_V, current_A, mass_g,
     dis_t = np.asarray(dis_t, float)
     if len(dis_t) < 3 or len(chg_t) < 3:
         return None
+    if not (np.isfinite(mass_g) and mass_g > 0
+            and np.isfinite(current_A) and abs(current_A) > 0):
+        return None
+    if not all(np.isfinite(values).all() for values in (chg_t, chg_V, dis_t, dis_V)):
+        return None
 
     t_dis = dis_t[-1] - dis_t[0]
     t_chg = chg_t[-1] - chg_t[0]
@@ -899,19 +913,26 @@ def gcd_metrics(chg_t, chg_V, dis_t, dis_V, current_A, mass_g,
             t_dis = (len(dis_t) - 1) * dt_est
         if t_chg <= 0 and len(chg_t) > 1:
             t_chg = (len(chg_t) - 1) * dt_est
-    if t_dis <= 0 or t_chg <= 0:
+    if not (np.isfinite(t_dis) and np.isfinite(t_chg)) or t_dis <= 0 or t_chg <= 0:
         return None
 
     ir_drop = max(0.0, dis_V[0] - dis_V[1]) if len(dis_V) > 1 else 0.0
     dV_eff = abs(dis_V[0] - dis_V[-1])
+    if not np.isfinite(dV_eff) or dV_eff <= 0:
+        return None
     if use_ir_free:
-        dV_eff = max(dV_eff - ir_drop, 1e-6)
+        ir_free_window = dV_eff - ir_drop
+        if not np.isfinite(ir_free_window) or ir_free_window <= 0:
+            return None
+        dV_eff = max(ir_free_window, 1e-6)
 
     I = abs(current_A)
     C = I * t_dis / (mass_g * dV_eff)          # F/g
     ce = (100.0 * t_dis / t_chg) if continuous else None
     E = 0.5 * C * (dV_eff ** 2) / 3.6          # Wh/kg
     P = E * 3600.0 / t_dis                     # W/kg
+    if not all(np.isfinite(value) for value in (C, E, P)) or C <= 0:
+        return None
 
     return {
         "t_discharge_s": t_dis, "t_charge_s": t_chg,
@@ -1279,12 +1300,8 @@ def save_fig(fig, name, st=None, formats=None, dpi=None, out_dir=None):
     made = []
     for fmt in formats:
         fmt = fmt.lower().lstrip(".")
-        dst = os.path.join(out_dir, name + "." + fmt)
-        if os.path.isfile(dst):
-            stamp = time.strftime("%H%M%S")
-            dst = os.path.join(out_dir, f"{name}_{stamp}.{fmt}")
-            print(f"    [防覆盖] {name}.{fmt} 已存在，改存为 "
-                  f"{name}_{stamp}.{fmt}")
+        from ec_export import unused_path
+        dst = unused_path(os.path.join(out_dir, name + "." + fmt))
         if want_trans:
             # 坐标区底色也得一起透明，不然只有画布外圈透明
             for ax in fig.axes:
@@ -1292,10 +1309,10 @@ def save_fig(fig, name, st=None, formats=None, dpi=None, out_dir=None):
                     ax.patch.set_alpha(0.0)
                 except Exception:
                     pass
-            fig.savefig(dst, dpi=dpi if fmt in ("png", "tif")
+            fig.savefig(dst, dpi=dpi if fmt in ("png", "tif", "tiff")
                         else None, transparent=True, facecolor="none")
         else:
-            fig.savefig(dst, dpi=dpi if fmt in ("png", "jpg", "jpeg", "tif")
+            fig.savefig(dst, dpi=dpi if fmt in ("png", "jpg", "jpeg", "tif", "tiff")
                         else None, transparent=False,
                         facecolor=fig.get_facecolor())
         made.append(dst)
@@ -1307,7 +1324,9 @@ def _prep_ax(st, ax=None):
     if ax is not None:
         return ax.figure, ax
     w, h = figsize_inch(st)
-    fig, ax = plt.subplots(figsize=(w, h))
+    fig = Figure(figsize=(w, h))
+    FigureCanvasAgg(fig)
+    ax = fig.add_subplot(111)
     apply_canvas_margin(fig, st)
     return fig, ax
 
@@ -1658,12 +1677,23 @@ def get_mass(cfg, names, path):
         print(f"    [跳过] {os.path.basename(path)}：未登记质量"
               f"（样品名 = {names[0]}），请在表格里填写")
         return None
+    try:
+        mg = float(mg)
+    except (TypeError, ValueError):
+        mg = np.nan
+    if not np.isfinite(mg) or mg <= 0:
+        print(f"    [跳过] {os.path.basename(path)}：质量必须是有限正数（mg），请核对登记值")
+        return None
     if not (0.05 <= mg <= 20):
         print(f"    [警告] {os.path.basename(path)} 质量 {mg} mg "
               f"超出常识范围，请确认")
     if src == "文件名自动提取":
         print(f"      质量 {mg:g} mg（从文件名提取）")
-    return mg / 1000.0
+    mass_g = mg / 1000.0
+    if not np.isfinite(mass_g) or mass_g <= 0:
+        print(f"    [跳过] {os.path.basename(path)}：质量换算为 g 后超出可计算范围")
+        return None
+    return mass_g
 
 
 # ==================================================================
@@ -1829,8 +1859,8 @@ def prepare(cfg):
     """
     eis_cfg = cfg.get("eis", {})
     files, skipped = scan_files(cfg)
-    if cfg.get("include_files"):        # 只处理界面勾选的文件
-        keep = set(os.path.abspath(p) for p in cfg["include_files"])
+    if "include_files" in cfg:         # 空列表表示未勾选，不应意外处理全部
+        keep = set(os.path.abspath(p) for p in (cfg["include_files"] or []))
         for k in files:
             skipped += [os.path.basename(p) for p in files[k]
                         if os.path.abspath(p) not in keep]
@@ -1859,6 +1889,13 @@ def prepare(cfg):
     do_gcd = bool(proc.get("GCD", True))
     do_eis = bool(proc.get("EIS", True))
     do_cyc = bool(proc.get("cycle", True))
+    if (do_cv or do_cyc) and files["CV"]:
+        try:
+            area = float(area)
+        except (TypeError, ValueError):
+            area = np.nan
+        if not np.isfinite(area) or area <= 0:
+            raise ValueError("电极面积 area_cm2 必须是有限正数（cm²），请修改参数后重试。")
     on_list = [n for n, v in (("CV", do_cv), ("GCD", do_gcd),
                               ("EIS", do_eis), ("循环稳定性", do_cyc)) if v]
     print("  本次处理：" + ("、".join(on_list) if on_list else "（未选任何类型）"))
@@ -1884,6 +1921,13 @@ def prepare(cfg):
         except Exception as exc:
             print(f"    [跳过] {key}：解析失败（{exc}）")
             continue
+        sr = meta.get("scan_rate_Vs", 0)
+        if not np.isfinite(sr) or sr <= 0:
+            print(f"    [跳过] {key}：扫速缺失或不是有限正数（V/s）")
+            continue
+        if not (np.isfinite(E).all() and np.isfinite(I).all()):
+            print(f"    [跳过] {key}：电位或电流包含 NaN/Inf")
+            continue
         segs = split_direction(E, I)
         picked, idxs, note = pick_segments(segs, want_cv)
         if not picked:
@@ -1895,16 +1939,25 @@ def prepare(cfg):
         Ic = np.concatenate([s[1] for s in picked])
         j = Ic / mass_g
         C = cv_capacitance(Ec, Ic, sr, mass_g)
+        if not np.isfinite(C) or C <= 0:
+            print(f"    [跳过] {key}：电压窗或积分结果无效，无法计算有限正比电容")
+            continue
+        area_density = Ic * 1000 / area
+        if not (np.isfinite(j).all() and np.isfinite(area_density).all()):
+            print(f"    [跳过] {key}：电流密度超出可计算范围，请核对质量和面积单位")
+            continue
         cv_tables.append(pd.DataFrame({
             "file": tag, "segment": "+".join(str(i) for i in idxs),
             "Potential_V": Ec, "Current_A": Ic,
             "CurrentDensity_A_g": j,
-            "CurrentDensity_mA_cm2": Ic * 1000 / area,
+            "CurrentDensity_mA_cm2": area_density,
+            "scan_rate_mVs": sr * 1000, "mass_mg": mass_g * 1000,
         }))
         cv_results.append({
             "label": f"{sr*1000:.0f} mV/s",
             "scan_rate_mVs": sr * 1000, "E": Ec, "j": j, "C_F_g": C,
-            "file": tag})
+            "file": tag, "mass_mg": mass_g * 1000,
+            "source_path": os.path.abspath(path)})
         print(f"      比电容 = {C:.1f} F/g")
 
         if do_cyc and len(segs) >= 6:
@@ -1930,20 +1983,30 @@ def prepare(cfg):
             print(f"    [跳过] {key}：解析失败（{exc}）")
             continue
         I_A = meta.get("current_A", None)
-        if I_A is None:
-            print(f"    [跳过] {key}：文件头中没有电流值")
+        if I_A is None or not np.isfinite(I_A) or abs(I_A) <= 0:
+            print(f"    [跳过] {key}：电流缺失、为零或不是有限数（A）")
+            continue
+        if not (np.isfinite(t).all() and np.isfinite(V).all()):
+            print(f"    [跳过] {key}：时间或电位包含 NaN/Inf")
             continue
         segs = split_direction(V, t, min_span_ratio=0.1, min_pts=2)
         picked, idxs, note = pick_segments(segs, want_gcd)
-        if not picked:
-            print(f"    [跳过] {key}：无法切出有效 segment")
+        if len(picked) < 2:
+            print(f"    [跳过] {key}：至少需要一段充电和一段放电")
             continue
-        # 文件名开头数字若带 mg 后缀那是质量，不能当成电流密度
-        mnum = re.match(r"^([\d.]+)\s*(mg)?", key)
-        if mnum and not mnum.group(2):
-            cd = float(mnum.group(1))
-        else:
-            cd = abs(I_A) / mass_g
+        # 电流密度由实验电流和实际质量确定，样品编号/文件名不得改变数值。
+        cd = abs(I_A) / mass_g
+        if not np.isfinite(cd) or cd <= 0:
+            print(f"    [跳过] {key}：电流密度超出可计算范围，请核对电流和质量单位")
+            continue
+        mnum = re.match(r"^(\d+(?:\.\d+)?)\s*(?:A/g|Ag|A[-_]g|A)(?:$|[._\-\s（(])", key, re.I)
+        if mnum:
+            named_cd = float(mnum.group(1))
+            if not np.isclose(named_cd, cd, rtol=0.02, atol=0.01):
+                note_cd = (f"{tag}：文件名标注 {named_cd:g} A/g，按电流和质量计算为 "
+                           f"{cd:g} A/g；本次采用计算值，请核对文件名与实验参数。")
+                print("    [注意] " + note_cd)
+                anomalies.append(note_cd)
         print(f"  GCD {short_label(tag, 34):34s} 电流 {abs(I_A)*1000:6.2f} mA | "
               f"{cd:.2f} A/g | {note}")
         Vc = np.concatenate([s[0] for s in picked])
@@ -1957,17 +2020,24 @@ def prepare(cfg):
                         continuous=cfg.get("gcd_continuous", False),
                         dt_est=dt_est)
         if m is None:
-            print(f"    [跳过] {key}：该段无法计算放电时间")
+            print(f"    [跳过] {key}：充放电时间、质量、电流或有效电压窗无效")
             continue
+        gap = max(0.0, float(m["discharge_t_abs"][0] - m["charge_t_abs"][-1]))
         gcd_tables.append(pd.DataFrame({
             "file": tag, "segment": "+".join(str(i) for i in idxs),
             "time_s": np.concatenate([m["charge_t"],
-                                      m["discharge_t"] + m["t_charge_s"]]),
+                                      m["discharge_t"] + m["charge_t"][-1] + gap]),
             "Potential_V": np.concatenate([m["charge_V"], m["discharge_V"]]),
+            "time_abs_s": np.concatenate([m["charge_t_abs"], m["discharge_t_abs"]]),
+            "time_phase_s": np.concatenate([m["charge_t"], m["discharge_t"]]),
+            "phase": ["charge"] * len(m["charge_t"]) + ["discharge"] * len(m["discharge_t"]),
+            "current_A": abs(I_A), "current_density_A_g": cd,
+            "mass_mg": mass_g * 1000,
         }))
         gcd_results.append({"label": f"{cd:g} A/g",
                             "current_density_A_g": cd, "metrics": m,
-                            "file": tag})
+                            "file": tag, "mass_mg": mass_g * 1000,
+                            "current_A": abs(I_A), "source_path": os.path.abspath(path)})
         ce = m["coulombic_eff_%"]
         ce_txt = (f" | 库伦效率 {ce:.1f}%" if ce is not None
                   else " | 库伦效率 不适用（独立充放电测试）")
@@ -2014,19 +2084,16 @@ def prepare(cfg):
         print(f"  EIS {short_label(tag, 34):34s} 频点 {len(f):3d} | "
               f"Rs ≈ {zr[0]:.2f} ohm")
         item = {"tag": tag, "key": key, "f": f, "zr": zr, "zi": zi,
-                "z_fit": None, "circuit": "", "source": "未拟合"}
-
-        if eis_cfg.get("export_zview"):
-            zp = export_zview(path, f, zr, zi)
-            print(f"      [ZView] {os.path.basename(zp)} 可直接拖进 ZView")
+                "z_fit": None, "fit_f": None, "circuit": "", "source": "未拟合",
+                "source_path": os.path.abspath(path)}
 
         if use_ext:                      # 优先用同目录的 ZView 拟合结果
             fit_path = find_fit_file(path)
             if fit_path:
                 par = parse_zview_fit(fit_path)
                 if par is not None:
-                    _, zrd, zid, zrf, zif = par
-                    item.update({"f": zrd, "z_fit": zrf + 1j * zif,
+                    fit_f, _, _, zrf, zif = par
+                    item.update({"fit_f": fit_f, "z_fit": zrf + 1j * zif,
                                  "circuit": "ZView " + os.path.basename(
                                      fit_path),
                                  "source": "ZView 外部拟合"})
@@ -2040,7 +2107,7 @@ def prepare(cfg):
             d_fit, z_fit, rep = fit_eis(f, zr, zi, circuit)
             print(f"      [拟合] {rep}")
             if d_fit:
-                item.update({"z_fit": z_fit, "circuit": d_fit["circuit"],
+                item.update({"z_fit": z_fit, "fit_f": f.copy(), "circuit": d_fit["circuit"],
                              "source": "本程序拟合"})
                 fit_rows.append({"file": tag, **d_fit})
 
@@ -2060,6 +2127,7 @@ def prepare(cfg):
         "cv_tables": cv_tables, "gcd_tables": gcd_tables,
         "eis": eis_items, "cycles": cycle_caps, "fit_rows": fit_rows,
         "skipped": skipped, "anomalies": anomalies,
+        "source_files": [p for group in files.values() for p in group],
     }
 
 
@@ -2109,6 +2177,12 @@ def segs_of(cfg, kind):
     return [int(x) for x in cfg.get("pick_segments", [2, 3])]
 
 
+def export_tables(data, cfg=None, out_dir=None):
+    """只导出处理结果 Excel/CSV/ZView，不生成图片，返回工作簿路径。"""
+    from ec_export import export_tables as write_tables
+    return write_tables(data, cfg=cfg, out_dir=out_dir)
+
+
 def render(data, cfg=None, formats=None, dpi=None, out_dir=None):
     """第二步：按当前样式出图 + 导出表格（data 来自 prepare）"""
     cfg = cfg or data["cfg"]
@@ -2117,6 +2191,8 @@ def render(data, cfg=None, formats=None, dpi=None, out_dir=None):
     formats = formats or out_cfg.get("formats", ["png", "pdf"])
     dpi = dpi or out_cfg.get("dpi", st["canvas"]["dpi"])
     out_dir = out_dir or out_cfg.get("dir") or OUTPUT_DIR
+    from ec_export import validate_output_dir, input_directories
+    out_dir = validate_output_dir(out_dir, input_directories(data, cfg))
     os.makedirs(out_dir, exist_ok=True)
 
     print("-" * 66)
@@ -2154,83 +2230,19 @@ def render(data, cfg=None, formats=None, dpi=None, out_dir=None):
     if n_eis:
         print(f"    [图] EIS {n_eis} 张")
 
-    # ---------- 导出 ----------
-    if data["cv_tables"] or data["gcd_tables"] or data["eis"]:
-        xlsx = os.path.join(out_dir, "processed_data.xlsx")
-        with pd.ExcelWriter(xlsx, engine="openpyxl") as w:
-            if data["cv_tables"]:
-                pd.concat(data["cv_tables"], ignore_index=True).to_excel(
-                    w, sheet_name="CV", index=False)
-            if data["gcd_tables"]:
-                pd.concat(data["gcd_tables"], ignore_index=True).to_excel(
-                    w, sheet_name="GCD", index=False)
-            if data["eis"]:
-                pd.concat([pd.DataFrame({"file": it["tag"],
-                                         "Freq_Hz": it["f"],
-                                         "Z_re_ohm": it["zr"],
-                                         "Z_im_ohm": it["zi"]})
-                           for it in data["eis"]],
-                          ignore_index=True).to_excel(
-                    w, sheet_name="EIS", index=False)
-            if data["fit_rows"]:
-                pd.DataFrame(data["fit_rows"]).to_excel(
-                    w, sheet_name="EIS_fit", index=False)
-            rows = []
-            for r in data["cv"]:
-                rows.append({"type": "CV", "file": r["file"],
-                             "condition": f"{r['scan_rate_mVs']:.0f} mV/s",
-                             "capacitance_F_g": r["C_F_g"]})
-            for r in data["gcd"]:
-                m = r["metrics"]
-                rows.append({"type": "GCD", "file": r["file"],
-                             "condition": f"{r['current_density_A_g']:g} A/g",
-                             "capacitance_F_g": m["capacitance_F_g"],
-                             "IR_drop_V": m["IR_drop_V"],
-                             "coulombic_eff_%": m["coulombic_eff_%"],
-                             "energy_Wh_kg": m["energy_Wh_kg"],
-                             "power_W_kg": m["power_W_kg"]})
-            df_sum = pd.DataFrame(rows)
-            if ("coulombic_eff_%" in df_sum
-                    and df_sum["coulombic_eff_%"].isna().all()):
-                df_sum = df_sum.drop(columns=["coulombic_eff_%"])
-            df_sum.to_excel(w, sheet_name="summary", index=False)
-
-            if data["cycles"]:
-                st_cyc = get_style(cfg, "cycle")
-                apply_style(st_cyc)
-                cap_cols, ret_cols = {}, {}
-                cyc_desc = set()
-                for name, rec in data["cycles"].items():
-                    caps = rec["caps"] if isinstance(rec, dict) else rec
-                    kind = rec.get("kind", "CV") if isinstance(rec, dict) \
-                        else "CV"
-                    cyc, vals = cycle_points(caps, cfg, kind)
-                    if not cyc:
-                        continue
-                    cyc_desc.add(f"{kind} 起始第 {cfg.get(f'{kind.lower()}_cycle_start', cfg.get('cycle_start', 10))} 圈、"
-                                 f"每 {cfg.get(f'{kind.lower()}_cycle_step', cfg.get('cycle_step', 10))} 圈取值")
-                    cap_cols[name] = pd.Series(vals, index=cyc)
-                    ret_cols[name] = pd.Series([100.0 * v / vals[0]
-                                                for v in vals], index=cyc)
-                    plot_cycle_stability(cyc, vals, name, st_cyc, formats,
-                                         dpi, out_dir=out_dir)
-                if cap_cols:
-                    df_cap = pd.DataFrame(cap_cols).rename_axis("cycle")
-                    df_ret = pd.DataFrame(ret_cols).rename_axis("cycle")
-                    df_cap.to_excel(w, sheet_name="cycle_capacitance")
-                    df_ret.to_excel(w, sheet_name="cycle_retention")
-                    # csv 版：Origin 里 File->Import 可直接读
-                    df_cap.to_csv(os.path.join(out_dir,
-                                               "cycle_capacitance.csv"),
-                                  encoding="utf-8-sig")
-                    df_ret.to_csv(os.path.join(out_dir,
-                                               "cycle_retention.csv"),
-                                  encoding="utf-8-sig")
-                    print("    [表] 循环稳定性：" + "；".join(sorted(cyc_desc)) +
-                          f"，共 {len(cap_cols)} 个样品（同时导出 csv）")
-        print("    [表] processed_data.xlsx")
+    # 循环绘图与表格导出分开，使“仅处理数据”入口无需创建任何画布。
+    st_cyc = get_style(cfg, "cycle")
+    for name, rec in data.get("cycles", {}).items():
+        caps = rec["caps"] if isinstance(rec, dict) else rec
+        kind = rec.get("kind", "CV") if isinstance(rec, dict) else "CV"
+        cyc, vals = cycle_points(caps, cfg, kind)
+        if cyc:
+            apply_style(st_cyc)
+            plot_cycle_stability(cyc, vals, name, st_cyc, formats, dpi, out_dir=out_dir)
+    xlsx = export_tables(data, cfg, out_dir=out_dir)
     print("=" * 66)
     print("全部完成，结果在：" + out_dir)
+    return xlsx
 
 
 def process_all(cfg):
@@ -2248,10 +2260,10 @@ def preview_list(data, cfg=None):
     cv, gcd = _plot_targets(data, cfg, verbose=False)
     items = []
     if cv:
-        items.append(("CV_overlay", f"CV 叠加图（{len(cv)} 条）"))
+        items.append(("CV_overlay", "CV 叠加图"))
         items.append(("CV_capacitance", "CV 比电容图"))
     if gcd:
-        items.append(("GCD_overlay", f"GCD 充放电曲线（{len(gcd)} 条）"))
+        items.append(("GCD_overlay", "GCD 充放电曲线"))
         items.append(("GCD_capacitance", "GCD 比电容图"))
     for i, it in enumerate(data["eis"]):
         items.append((f"EIS:{i}", "EIS " + short_label(it["tag"], 26)

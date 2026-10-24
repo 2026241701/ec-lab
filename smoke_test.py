@@ -4,6 +4,8 @@ import os
 import sys
 import json
 import shutil
+import tempfile
+import atexit
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["MPLBACKEND"] = "QtAgg"
@@ -22,6 +24,12 @@ def ok(cond, msg):
 print("=== 1. 配置保险箱 ===")
 import cfg_guard
 import make_mock
+# Fault-injection belongs in a disposable configuration, never in the user's
+# settings. The GUI and engine share this isolated fixture for the whole run.
+_sandbox = tempfile.TemporaryDirectory(prefix="ec-lab-smoke-")
+atexit.register(_sandbox.cleanup)
+cfg_guard.CONFIG_PATH = os.path.join(_sandbox.name, "config.json")
+cfg_guard.BACKUP_DIR = os.path.join(_sandbox.name, "backups")
 cfg, note = cfg_guard.load_config()
 ok(isinstance(cfg, dict) and len(cfg) > 10, "load_config 返回可用配置")
 # data_dir 为空是合法状态（干净机器 / CI）：自动改用仓库内置合成样例
@@ -68,6 +76,7 @@ print("=== 4. 界面能起来 ===")
 import matplotlib
 matplotlib.use("QtAgg")
 import ec_gui
+ec_gui.CONFIG_PATH = cfg_guard.CONFIG_PATH
 from PySide6.QtWidgets import QApplication
 app = QApplication([])
 ec_gui.apply_theme(app, "classic")

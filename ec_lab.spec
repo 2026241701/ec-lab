@@ -1,13 +1,25 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-ec-lab PyInstaller 打包配置
-用法: python -m PyInstaller ec_lab.spec
-输出: dist/ec-lab/ec-lab.exe
+ec-lab PyInstaller 打包配置（适配 PyInstaller 6.x / Python 3.13 / PySide6 6.11）
+用法：.venv\\Scripts\\python.exe tools\\build_portable.py --noconfirm（隔离 PATH 并核对依赖来源）
+输出：dist/ec-lab/ec-lab.exe
+
+2026-10 打包移植版改动（相对 2026-10-08 旧版）：
+  1. 不再打包真实 config.json，改打包 config.example.json（模板）。
+     真实配置含 Ding 的个人数据路径与 85 条样品质量登记，绝不能随包分发。
+     首次运行由 cfg_guard.seed_config_from_example() 复制模板生成空白 config.json。
+  2. 打包 examples/ 合成样例数据，让别人没真实数据也能先试跑（禁止用于论文）。
+  3. 适配 PyInstaller 6.x：去掉已删除的 block_cipher / cipher 参数、
+     已废弃的 win_no_prefer_redirects / win_private_assemblies，以及
+     PYZ 里不再需要的 a.zipped_data。
+  4. COLLECT 指定 contents_directory='.'，保持「exe 旁边就是全部文件」的平铺布局。
+     PyInstaller 6.x 默认把依赖塞进 _internal/ 子目录，而 cfg_guard 只认
+     exe 同级的 config.example.json —— 平铺布局才能让模板机制正常工作。
+  5. 保留 PySide6 裁剪（_skip_ps / _skip_bin），约省 200MB。
+  6. 「绘图模板/」是用户自己的绘图样式存档，属于用户数据，不打包。
 """
 import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
-
-block_cipher = None
 
 # --- 收集 matplotlib 数据文件（字体、样式等）---
 datas = []
@@ -29,10 +41,24 @@ datas += [(src, dst) for src, dst in _pyside_datas
 # 本地资源
 BASE = os.path.abspath('.')
 datas += [
-    ('tools/RGB颜色取色器.html', 'tools'),
-    ('config.json', '.'),
-    ('ec-lab.ico', '.'),            # 窗口图标
-    ('palette_icon.png', '.'),      # 调色盘图标
+    ('tools/RGB颜色取色器.html', 'tools'),   # ec_gui.py COLOR_PICKER_HTML 用到
+    ('config.example.json', '.'),            # 模板：首启复制成空白 config.json
+    ('ec-lab.ico', '.'),                     # 窗口图标
+    ('palette_icon.png', '.'),               # 调色盘图标
+]
+
+# 合成样例数据：没有真实 CHI 数据的人可以先拿它试跑（假数据，禁止用于论文）
+datas += [
+    ('examples/sample_data', 'examples/sample_data'),
+    ('examples/README.md', 'examples'),
+    ('examples/conductivity_demo.csv', 'examples'),
+    ('docs/data-and-plot-guide.md', 'docs'),
+    ('docs/plotting-sources.md', 'docs'),
+    ('templates/电容贡献率模板.xlsx', 'templates'),
+    ('docs/original-excel-guide.md', 'docs'),
+    ('docs/cdi-reference-audit-20261024.md', 'docs'),
+    ('docs/ui-design-20261024.md', 'docs'),
+    ('docs/科研绘图项目设计学习报告-20261024.md', 'docs'),
 ]
 
 # --- 隐藏导入 ---
@@ -88,9 +114,6 @@ a = Analysis(
         # --- 其他不用的 ---
         'PIL.ImageQt',  # 不需要 PIL-Qt 桥接
     ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
     noarchive=False,
 )
 
@@ -109,9 +132,13 @@ _skip_bin = ('Qt6Qml', 'Qt6Quick', 'Qt6Quick3D', 'Qt6WebEngine',
              'Qt6QmlWorkerScript', 'Qt6QuickParticles', 'Qt6QuickShapes',
              'Qt6Quick3DUtils', 'Qt6Quick3DAssetImport', 'Qt6Quick3DRuntimeRender')
 a.binaries = [b for b in a.binaries if not any(k in b[0] for k in _skip_bin)]
-a.datas = [d for d in a.datas if not any(k in d[0] for k in _skip_ps)]
+# 只过滤 PySide6 的数据文件：_skip_ps 里有 'examples' 这类通用词，
+# 若无条件过滤会把 examples/sample_data 合成样例也一起删掉。
+a.datas = [d for d in a.datas
+           if not ('PySide6' in d[0] and any(k in d[0] for k in _skip_ps))]
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+# PyInstaller 6.x：PYZ 只需要 a.pure（a.zipped_data 与 cipher 均已移除）
+pyz = PYZ(a.pure)
 
 exe = EXE(
     pyz,
@@ -130,6 +157,11 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='ec-lab.ico',
+    # PyInstaller 6.x：onedir 的布局开关在 EXE 上（COLLECT 会继承它）。
+    # '.' = 旧式平铺布局，exe 与全部依赖同目录。必须这样：
+    # cfg_guard.EXAMPLE_PATH 只认 exe 同级的 config.example.json，
+    # 塞进 _internal/ 模板机制就失效了；图标、工具页、output/ 同理。
+    contents_directory='.',
 )
 
 coll = COLLECT(
